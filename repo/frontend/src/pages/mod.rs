@@ -1,0 +1,10 @@
+pub mod login;
+pub mod dashboard;
+pub mod courses;
+pub mod course_detail;
+pub mod course_editor;
+pub mod approvals;
+pub mod bookings;
+pub mod risk;
+pub mod privacy;
+pub mod audit;

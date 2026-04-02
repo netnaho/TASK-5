@@ -1,0 +1,22 @@
+[application]
+name = "campus-learn-frontend"
+default_platform = "web"
+
+[application.tools.tailwindcss]
+enabled = false
+
+[web.app]
+title = "CampusLearn Operations Suite"
+
+[web.watcher]
+watch_path = ["src", "assets"]
+reload_html = true
+index_on_404 = true
+
+[web.resource]
+style = ["assets/main.css"]
+script = []
+
+[web.resource.dev]
+style = ["assets/main.css"]
+script = []

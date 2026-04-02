@@ -1,0 +1,10 @@
+pub mod user_repo;
+pub mod course_repo;
+pub mod approval_repo;
+pub mod audit_repo;
+pub mod security_repo;
+pub mod rate_limit_repo;
+pub mod booking_repo;
+pub mod risk_repo;
+pub mod privacy_repo;
+pub mod webhook_repo;

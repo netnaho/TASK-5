@@ -1,0 +1,12 @@
+target/
+node_modules/
+__pycache__/
+*.pyc
+.env
+*.pem
+*.key
+dist/
+*.log
+.DS_Store
+mysql_data/
+.claude/
