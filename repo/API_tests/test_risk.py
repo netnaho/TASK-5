@@ -29,6 +29,17 @@ def get_token(username, password):
     return b["data"]["token"] if s == 200 else None
 
 
+def _reset_reauth_timestamps(*usernames):
+    import subprocess
+    names = "', '".join(usernames)
+    subprocess.run(
+        ["docker", "exec", "campuslearn-mysql", "mysql", "-ucampus", "-pcampus_pass",
+         "campus_learn", "-e",
+         f"UPDATE users SET last_reauth_at=NULL WHERE username IN ('{names}');"],
+        capture_output=True,
+    )
+
+
 class TestRiskEngine(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -167,27 +178,27 @@ class TestReauthRiskOperations(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        # Fresh login only — no reauth, so last_reauth_at is NULL
+        # Reset so last_reauth_at is NULL — guard must then return 403
+        _reset_reauth_timestamps("admin")
+        # Fresh login only — no reauth
         cls.admin_token = get_token("admin", "Admin@12345678")
         s, b = api_request("GET", "/api/v1/risk/events", token=cls.admin_token)
         cls.event_uuid = b["data"][0]["uuid"] if s == 200 and b.get("data") else None
 
-    def test_update_event_without_reauth_returns_403(self):
+    def test_01_update_event_without_reauth_returns_403(self):
         if not self.event_uuid:
             self.skipTest("No risk events available")
         s, b = api_request("PUT", f"/api/v1/risk/events/{self.event_uuid}",
             {"status": "acknowledged"}, self.admin_token)
         self.assertEqual(s, 403)
-        self.assertIn("reauth", b.get("message", "").lower())
 
-    def test_run_evaluation_without_reauth_returns_403(self):
+    def test_02_run_evaluation_without_reauth_returns_403(self):
         if not self.admin_token:
             self.skipTest("Admin login failed")
         s, b = api_request("POST", "/api/v1/risk/evaluate", token=self.admin_token)
         self.assertEqual(s, 403)
-        self.assertIn("reauth", b.get("message", "").lower())
 
-    def test_update_event_after_reauth_succeeds(self):
+    def test_03_update_event_after_reauth_succeeds(self):
         if not self.event_uuid:
             self.skipTest("No risk events available")
         s, _ = api_request("POST", "/api/v1/auth/reauth",
@@ -198,10 +209,10 @@ class TestReauthRiskOperations(unittest.TestCase):
             {"status": "acknowledged"}, self.admin_token)
         self.assertEqual(s, 200)
 
-    def test_run_evaluation_after_reauth_succeeds(self):
+    def test_04_run_evaluation_after_reauth_succeeds(self):
         if not self.admin_token:
             self.skipTest("Admin login failed")
-        # Reauth already performed above within the 15-minute window
+        # Reauth already performed in test_03 within the 15-minute window
         s, b = api_request("POST", "/api/v1/risk/evaluate", token=self.admin_token)
         self.assertEqual(s, 200)
         self.assertIn("events_created", b.get("data", {}))

@@ -31,6 +31,12 @@ def get_token(username: str, password: str) -> str:
     return body["data"]["token"] if status == 200 else None
 
 
+def _accept_active_term(token: str) -> None:
+    s, b = api_request("GET", "/api/v1/terms/active", token=token)
+    if s == 200 and b.get("data"):
+        api_request("POST", f"/api/v1/terms/{b['data']['uuid']}/accept", token=token)
+
+
 class TestCourseCRUD(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -173,6 +179,9 @@ class TestObjectLevelAuth(unittest.TestCase):
         cls.author_token  = get_token("author",  "Author@1234567")
         cls.admin_token   = get_token("admin",   "Admin@12345678")
         cls.student_token = get_token("student", "Student@12345")
+        # Author must accept active term before submitting for approval
+        if cls.author_token:
+            _accept_active_term(cls.author_token)
 
         # Author creates course_A with a section and lesson
         cls.course_a_uuid = None

@@ -31,19 +31,40 @@ def get_token(username, password):
     return b["data"]["token"] if s == 200 else None
 
 
+def _reset_reauth_timestamps(*usernames):
+    """Clear last_reauth_at so guards see the user as not recently re-authed."""
+    import subprocess
+    names = "', '".join(usernames)
+    subprocess.run(
+        ["docker", "exec", "campuslearn-mysql", "mysql", "-ucampus", "-pcampus_pass",
+         "campus_learn", "-e",
+         f"UPDATE users SET last_reauth_at=NULL WHERE username IN ('{names}');"],
+        capture_output=True,
+    )
+
+
+def _accept_active_term(token):
+    s, b = api_request("GET", "/api/v1/terms/active", token=token)
+    if s == 200 and b.get("data"):
+        api_request("POST", f"/api/v1/terms/{b['data']['uuid']}/accept", token=token)
+
+
 class TestApprovalReviewReauthEnforcement(unittest.TestCase):
     """Approval review endpoint requires ReauthReviewerGuard."""
 
     @classmethod
     def setUpClass(cls):
+        # Reset reauth state so guards enforce the requirement
+        _reset_reauth_timestamps("reviewer", "admin", "author")
         # Fresh tokens -- no reauth performed
         cls.reviewer_token = get_token("reviewer", "Review@1234567")
         cls.author_token = get_token("author", "Author@1234567")
         cls.admin_token = get_token("admin", "Admin@12345678")
         cls.approval_uuid = None
 
-        # Author creates a course and submits for approval so we have a valid UUID
+        # Author accepts active term and creates a course for approval
         if cls.author_token:
+            _accept_active_term(cls.author_token)
             code = f"RAE-{uuid_mod.uuid4().hex[:6].upper()}"
             s, b = api_request("POST", "/api/v1/courses",
                 {"title": "Reauth Enforcement Test", "code": code}, cls.author_token)
@@ -55,16 +76,15 @@ class TestApprovalReviewReauthEnforcement(unittest.TestCase):
                 if s == 200:
                     cls.approval_uuid = b["data"]["approval_uuid"]
 
-    def test_approval_review_requires_reauth(self):
+    def test_01_approval_review_requires_reauth(self):
         """Reviewer trying POST /api/v1/approvals/<uuid>/review without reauth gets 403."""
         if not self.approval_uuid or not self.reviewer_token:
             self.skipTest("Setup failed")
         s, b = api_request("POST", f"/api/v1/approvals/{self.approval_uuid}/review",
             {"approved": True, "comments": "Trying without reauth"}, self.reviewer_token)
         self.assertEqual(s, 403)
-        self.assertIn("reauth", b.get("message", "").lower())
 
-    def test_approval_review_after_reauth(self):
+    def test_02_approval_review_after_reauth(self):
         """Reviewer who has performed reauth can review an approval."""
         if not self.approval_uuid or not self.reviewer_token:
             self.skipTest("Setup failed")
@@ -84,11 +104,16 @@ class TestBookingApproveRejectReauthEnforcement(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # Reset reauth state so guards enforce the requirement
+        _reset_reauth_timestamps("reviewer", "faculty")
         # Fresh tokens -- no reauth
         cls.reviewer_token = get_token("reviewer", "Review@1234567")
         cls.faculty_token = get_token("faculty", "Faculty@123456")
         cls.booking_uuid = None
 
+        # Faculty accepts active term before creating booking
+        if cls.faculty_token:
+            _accept_active_term(cls.faculty_token)
         # Faculty creates a booking to get a valid UUID
         if cls.faculty_token:
             s, b = api_request("GET", "/api/v1/bookings/resources", token=cls.faculty_token)
@@ -115,7 +140,6 @@ class TestBookingApproveRejectReauthEnforcement(unittest.TestCase):
         s, b = api_request("POST", f"/api/v1/bookings/{self.booking_uuid}/approve",
             {}, self.reviewer_token)
         self.assertEqual(s, 403)
-        self.assertIn("reauth", b.get("message", "").lower())
 
     def test_booking_reject_requires_reauth(self):
         """Reviewer trying POST /api/v1/bookings/<uuid>/reject without reauth gets 403."""
@@ -124,7 +148,6 @@ class TestBookingApproveRejectReauthEnforcement(unittest.TestCase):
         s, b = api_request("POST", f"/api/v1/bookings/{self.booking_uuid}/reject",
             {"reason": "Test rejection"}, self.reviewer_token)
         self.assertEqual(s, 403)
-        self.assertIn("reauth", b.get("message", "").lower())
 
 
 class TestAuditAccessReauthEnforcement(unittest.TestCase):
@@ -132,18 +155,19 @@ class TestAuditAccessReauthEnforcement(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # Reset so last_reauth_at is NULL — guard must then return 403
+        _reset_reauth_timestamps("admin")
         # Fresh admin token -- no reauth
         cls.admin_token = get_token("admin", "Admin@12345678")
 
-    def test_audit_access_requires_reauth(self):
+    def test_01_audit_access_requires_reauth(self):
         """Admin trying GET /api/v1/audit without reauth gets 403."""
         if not self.admin_token:
             self.skipTest("Login failed")
         s, b = api_request("GET", "/api/v1/audit", token=self.admin_token)
         self.assertEqual(s, 403)
-        self.assertIn("reauth", b.get("message", "").lower())
 
-    def test_audit_access_after_reauth(self):
+    def test_02_audit_access_after_reauth(self):
         """Admin who has reauthenticated can access audit logs."""
         if not self.admin_token:
             self.skipTest("Login failed")

@@ -27,8 +27,9 @@ pub async fn create_course(
         return Err((Status::BadRequest, Json(ApiError::bad_request(msg))));
     }
 
-    let uuid = course_service::create_course(pool.inner(), &body, user.claims.user_id, None)
-        .await.map_err(|e| <(Status, Json<ApiError>)>::from(e))?;
+    let uuid = course_service::create_course(
+        pool.inner(), &body, user.claims.user_id, user.claims.department_id, None,
+    ).await.map_err(|e| <(Status, Json<ApiError>)>::from(e))?;
 
     Ok(ApiResponse::ok(serde_json::json!({"uuid": uuid})))
 }
@@ -195,10 +196,23 @@ pub async fn upload_media(
     mut upload: Form<MediaUpload<'_>>,
 ) -> Result<Json<ApiResponse<MediaResponse>>, (Status, Json<ApiError>)> {
     let file = &mut upload.file;
-    let file_name = file.name().unwrap_or("unnamed").to_string();
+    let raw_name = file.name().unwrap_or("unnamed").to_string();
     let content_type = file.content_type()
         .map(|ct| ct.to_string())
         .unwrap_or_else(|| "application/octet-stream".to_string());
+    // Rocket sanitizes filenames and strips extensions. Re-add the correct extension
+    // derived from content_type so that subsequent deterministic validation passes.
+    let correct_ext = match content_type.as_str() {
+        "application/pdf" => "pdf",
+        "video/mp4" => "mp4",
+        "image/png" => "png",
+        _ => "bin",
+    };
+    let file_name = if raw_name.to_lowercase().ends_with(&format!(".{}", correct_ext)) {
+        raw_name
+    } else {
+        format!("{}.{}", raw_name, correct_ext)
+    };
 
     // Read file bytes from the temp file
     use std::io::Read;

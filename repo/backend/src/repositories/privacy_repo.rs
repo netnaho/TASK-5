@@ -93,9 +93,9 @@ pub async fn export_user_data(pool: &MySqlPool, user_id: i64) -> Result<serde_js
         "SELECT username, email, full_name, role, department_id FROM users WHERE id = ?"
     ).bind(user_id).fetch_optional(pool).await?;
 
-    // Bookings
+    // Bookings — cast DATETIME to CHAR to avoid Rust/SQLx type mismatch
     let bookings: Vec<(String, String, String, String, String)> = sqlx::query_as(
-        "SELECT uuid, title, start_time, end_time, status FROM bookings WHERE booked_by = ? ORDER BY created_at DESC"
+        "SELECT uuid, title, DATE_FORMAT(start_time, '%Y-%m-%d %H:%i:%s'), DATE_FORMAT(end_time, '%Y-%m-%d %H:%i:%s'), status FROM bookings WHERE booked_by = ? ORDER BY created_at DESC"
     ).bind(user_id).fetch_all(pool).await?;
 
     // Courses created
@@ -105,7 +105,7 @@ pub async fn export_user_data(pool: &MySqlPool, user_id: i64) -> Result<serde_js
 
     // Audit entries for this user
     let audit_entries: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT uuid, action, created_at FROM audit_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 500"
+        "SELECT uuid, action, DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%sZ') FROM audit_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 500"
     ).bind(user_id).fetch_all(pool).await?;
 
     // Sensitive fields (names only, not values)
@@ -115,7 +115,7 @@ pub async fn export_user_data(pool: &MySqlPool, user_id: i64) -> Result<serde_js
 
     // Notifications
     let notifications: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT uuid, title, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 200"
+        "SELECT uuid, title, DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%sZ') FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 200"
     ).bind(user_id).fetch_all(pool).await?;
 
     Ok(serde_json::json!({

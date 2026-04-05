@@ -13,7 +13,10 @@ def _reset_account_lockouts():
     subprocess.run(
         ["docker", "exec", "campuslearn-mysql", "mysql", "-ucampus", "-pcampus_pass",
          "campus_learn", "-e",
-         "UPDATE users SET failed_login_count=0, locked_until=NULL; DELETE FROM ip_rate_limits;"],
+         "UPDATE users SET failed_login_count=0, locked_until=NULL; "
+         "DELETE FROM ip_rate_limits; "
+         "DELETE FROM rate_limit_entries; "
+         "UPDATE bookings SET status='cancelled' WHERE status IN ('confirmed', 'pending') AND start_time > NOW();"],
         capture_output=True,
     )
 

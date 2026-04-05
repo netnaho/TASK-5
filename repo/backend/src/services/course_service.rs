@@ -67,12 +67,16 @@ fn assert_course_owner(course: &Course, role: &str, user_id: i64) -> Result<(), 
 // ---------------------------------------------------------------------------
 
 pub async fn create_course(
-    pool: &MySqlPool, req: &CreateCourseRequest, user_id: i64, correlation_id: Option<&str>,
+    pool: &MySqlPool, req: &CreateCourseRequest, user_id: i64,
+    author_department_id: Option<i64>, correlation_id: Option<&str>,
 ) -> Result<String, AppError> {
+    // Inherit author's department when the request doesn't specify one,
+    // so reviewers in the same department can see the draft.
+    let effective_department_id = req.department_id.or(author_department_id);
     let uuid = Uuid::new_v4().to_string();
     course_repo::create_course(
         pool, &uuid, &req.title, &req.code, req.description.as_deref(),
-        req.department_id, req.term_id, user_id, req.max_enrollment,
+        effective_department_id, req.term_id, user_id, req.max_enrollment,
     ).await.map_err(|e| {
         if e.to_string().contains("Duplicate") {
             AppError::Validation(format!("Course code '{}' already exists", req.code))

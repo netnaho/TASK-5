@@ -14,7 +14,10 @@ def _reset_account_lockouts():
     subprocess.run(
         ["docker", "exec", "campuslearn-mysql", "mysql", "-ucampus", "-pcampus_pass",
          "campus_learn", "-e",
-         "UPDATE users SET failed_login_count=0, locked_until=NULL; DELETE FROM ip_rate_limits;"],
+         "UPDATE users SET failed_login_count=0, locked_until=NULL; "
+         "DELETE FROM ip_rate_limits; "
+         "DELETE FROM rate_limit_entries; "
+         "UPDATE bookings SET status='cancelled' WHERE status IN ('confirmed', 'pending') AND start_time > NOW();"],
         capture_output=True,
     )
 
@@ -44,14 +47,24 @@ def get_token(username: str, password: str) -> str:
     return body["data"]["token"] if status == 200 else None
 
 
+def _accept_active_term(token: str) -> None:
+    s, b = api_request("GET", "/api/v1/terms/active", token=token)
+    if s == 200 and b.get("data"):
+        api_request("POST", f"/api/v1/terms/{b['data']['uuid']}/accept", token=token)
+
+
 class TestApprovalWorkflow(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        _reset_account_lockouts()
         cls.author_token = get_token("author", "Author@1234567")
         cls.reviewer_token = get_token("reviewer", "Review@1234567")
         cls.admin_token = get_token("admin", "Admin@12345678")
         cls.course_uuid = None
         cls.approval_uuid = None
+        # Author must accept active term before submitting for approval
+        if cls.author_token:
+            _accept_active_term(cls.author_token)
         # Reauth reviewer and admin for approval actions
         if cls.reviewer_token:
             api_request("POST", "/api/v1/auth/reauth", {"password": "Review@1234567"}, cls.reviewer_token)
@@ -143,6 +156,9 @@ class TestApprovalRejection(unittest.TestCase):
     def setUpClass(cls):
         cls.author_token = get_token("author", "Author@1234567")
         cls.reviewer_token = get_token("reviewer", "Review@1234567")
+        # Author accepts active term before submitting
+        if cls.author_token:
+            _accept_active_term(cls.author_token)
         # Reauth reviewer for review actions
         if cls.reviewer_token:
             api_request("POST", "/api/v1/auth/reauth", {"password": "Review@1234567"}, cls.reviewer_token)
@@ -190,6 +206,10 @@ class TestApprovalVisibility(unittest.TestCase):
         cls.author_token  = get_token("author",  "Author@1234567")
         cls.student_token = get_token("student", "Student@12345")
         cls.faculty_token = get_token("faculty", "Faculty@123456")
+
+        # Author accepts active term before submitting
+        if cls.author_token:
+            _accept_active_term(cls.author_token)
 
         # Author creates a fresh course and submits it for approval
         cls.approval_uuid = None
@@ -250,7 +270,8 @@ def create_and_publish_course(author_token, reviewer_token, admin_token, code_pr
     course_uuid = b["data"]["uuid"]
 
     # Submit with a past effective_date so admin approval triggers immediate publish
-    past = (datetime.now() - timedelta(hours=1)).strftime("%m/%d/%Y %I:%M %p")
+    # Use UTC-based past date to avoid timezone skew (host UTC+3 vs backend UTC)
+    past = (datetime.utcnow() - timedelta(hours=2)).strftime("%m/%d/%Y %I:%M %p")
     s, b = api_request("POST", f"/api/v1/approvals/{course_uuid}/submit",
         {"release_notes": "Test publish", "effective_date": past}, author_token)
     if s != 200:
@@ -424,7 +445,8 @@ class TestUnpublishImmediateFlow(unittest.TestCase):
             return
 
         # Submit unpublish with a past effective_date → should execute immediately on final approval
-        past = (datetime.now() - timedelta(hours=1)).strftime("%m/%d/%Y %I:%M %p")
+        # Use UTC-based past date to avoid timezone skew (host UTC+3 vs backend UTC)
+        past = (datetime.utcnow() - timedelta(hours=2)).strftime("%m/%d/%Y %I:%M %p")
         s, b = api_request("POST", f"/api/v1/approvals/{cls.course_uuid}/unpublish",
             {"release_notes": "Immediate unpublish", "effective_date": past}, cls.author_token)
         if s == 200:

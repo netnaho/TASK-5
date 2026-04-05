@@ -30,6 +30,17 @@ def get_token(username, password):
     return b["data"]["token"] if s == 200 else None
 
 
+def _reset_reauth_timestamps(*usernames):
+    import subprocess
+    names = "', '".join(usernames)
+    subprocess.run(
+        ["docker", "exec", "campuslearn-mysql", "mysql", "-ucampus", "-pcampus_pass",
+         "campus_learn", "-e",
+         f"UPDATE users SET last_reauth_at=NULL WHERE username IN ('{names}');"],
+        capture_output=True,
+    )
+
+
 class TestReviewerPendingApprovals(unittest.TestCase):
     """Reviewer can see pending booking approvals after reauth."""
 
@@ -136,6 +147,8 @@ class TestBookerBreaches(unittest.TestCase):
         """Fresh reviewer token cannot access booker-breaches without reauth."""
         if not self.booking_uuid:
             self.skipTest("No booking available")
+        # Clear last_reauth_at so the guard enforces re-auth (previous test may have set it)
+        _reset_reauth_timestamps("reviewer")
         fresh_token = get_token("reviewer", "Review@1234567")
         if not fresh_token:
             self.skipTest("Reviewer login failed")

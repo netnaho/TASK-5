@@ -13,7 +13,10 @@ def _reset_account_lockouts():
     subprocess.run(
         ["docker", "exec", "campuslearn-mysql", "mysql", "-ucampus", "-pcampus_pass",
          "campus_learn", "-e",
-         "UPDATE users SET failed_login_count=0, locked_until=NULL; DELETE FROM ip_rate_limits;"],
+         "UPDATE users SET failed_login_count=0, locked_until=NULL; "
+         "DELETE FROM ip_rate_limits; "
+         "DELETE FROM rate_limit_entries; "
+         "UPDATE bookings SET status='cancelled' WHERE status IN ('confirmed', 'pending') AND start_time > NOW();"],
         capture_output=True,
     )
 
@@ -55,6 +58,7 @@ def get_token(username, password):
 class TestBookingHappyPath(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # _reset_account_lockouts cancels all future active bookings to avoid slot conflicts
         _reset_account_lockouts()
         cls.token = get_token("faculty", "Faculty@123456")
         cls.admin_token = get_token("admin", "Admin@12345678")
@@ -210,6 +214,7 @@ class TestBookingOwnershipEnforcement(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        _reset_account_lockouts()
         cls.faculty_token = get_token("faculty", "Faculty@123456")
         cls.student_token = get_token("student", "Student@12345")
         cls.admin_token = get_token("admin", "Admin@12345678")

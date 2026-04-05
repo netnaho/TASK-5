@@ -14,7 +14,10 @@ def _reset_account_lockouts():
     subprocess.run(
         ["docker", "exec", "campuslearn-mysql", "mysql", "-ucampus", "-pcampus_pass",
          "campus_learn", "-e",
-         "UPDATE users SET failed_login_count=0, locked_until=NULL; DELETE FROM ip_rate_limits;"],
+         "UPDATE users SET failed_login_count=0, locked_until=NULL; "
+         "DELETE FROM ip_rate_limits; "
+         "DELETE FROM rate_limit_entries; "
+         "UPDATE bookings SET status='cancelled' WHERE status IN ('confirmed', 'pending') AND start_time > NOW();"],
         capture_output=True,
     )
 
@@ -205,9 +208,9 @@ class TestScopeIsolation(unittest.TestCase):
 
         s, b = api_request("GET", "/api/v1/approvals/queue", token=self.reviewer_token)
         self.assertEqual(s, 200)
-        # All returned approvals must be for courses in entity_type 'course'
+        # All returned approvals must be for course-related entity types
         for item in b.get("data", []):
-            self.assertEqual(item["approval"]["entity_type"], "course")
+            self.assertIn(item["approval"]["entity_type"], ["course", "course_unpublish"])
 
     def test_admin_sees_full_approval_queue(self):
         s, b = api_request("GET", "/api/v1/approvals/queue", token=self.admin_token)

@@ -36,7 +36,10 @@ def _reset_account_lockouts():
     subprocess.run(
         ["docker", "exec", "campuslearn-mysql", "mysql", "-ucampus", "-pcampus_pass",
          "campus_learn", "-e",
-         "UPDATE users SET failed_login_count=0, locked_until=NULL; DELETE FROM ip_rate_limits;"],
+         "UPDATE users SET failed_login_count=0, locked_until=NULL; "
+         "DELETE FROM ip_rate_limits; "
+         "DELETE FROM rate_limit_entries; "
+         "UPDATE bookings SET status='cancelled' WHERE status IN ('confirmed', 'pending') AND start_time > NOW();"],
         capture_output=True,
     )
 
@@ -204,6 +207,9 @@ class TestSectionVersionUnauthorizedAccess(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # Reset rate limits — this class runs after test_rate_limit.py may have
+        # exhausted per-user quotas for student/faculty
+        _reset_account_lockouts()
         cls.author_token  = get_token("author",  "Author@1234567")
         cls.student_token = get_token("student", "Student@12345")
         cls.faculty_token = get_token("faculty", "Faculty@123456")
@@ -310,6 +316,9 @@ class TestApprovalOutOfScopeAccess(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # Reset rate limits — this class is the first in this file and runs after
+        # test_rate_limit.py may have exhausted per-user quotas for student/faculty
+        _reset_account_lockouts()
         cls.author_token   = get_token("author",   "Author@1234567")
         cls.reviewer_token = get_token("reviewer", "Review@1234567")
         cls.admin_token    = get_token("admin",    "Admin@12345678")
@@ -409,6 +418,9 @@ class TestNotificationCrossUserIsolation(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # Reset rate limits — this class runs after test_rate_limit.py may have
+        # exhausted per-user quotas for student
+        _reset_account_lockouts()
         cls.author_token  = get_token("author",  "Author@1234567")
         cls.student_token = get_token("student", "Student@12345")
         cls.admin_token   = get_token("admin",   "Admin@12345678")
@@ -422,7 +434,8 @@ class TestNotificationCrossUserIsolation(unittest.TestCase):
             reauth(cls.admin_token, "Admin@12345678")
             course_uuid = create_draft_course(cls.author_token)
             if course_uuid:
-                past = (datetime.now() - timedelta(hours=1)).strftime("%m/%d/%Y %I:%M %p")
+                # Use UTC-based past date to avoid timezone skew (host UTC+3 vs backend UTC)
+                past = (datetime.utcnow() - timedelta(hours=2)).strftime("%m/%d/%Y %I:%M %p")
                 s, b = api("POST", f"/api/v1/approvals/{course_uuid}/submit",
                            {"release_notes": "Notif isolation test", "effective_date": past},
                            cls.author_token)
