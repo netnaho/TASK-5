@@ -10,3 +10,5 @@ dist/
 .DS_Store
 mysql_data/
 .claude/
+.tmp/
+CLAUDE.md
