@@ -212,7 +212,11 @@ class TestReauthRiskOperations(unittest.TestCase):
     def test_04_run_evaluation_after_reauth_succeeds(self):
         if not self.admin_token:
             self.skipTest("Admin login failed")
-        # Reauth already performed in test_03 within the 15-minute window
+        # Perform reauth explicitly (test_03 may have been skipped if no event_uuid)
+        s, _ = api_request("POST", "/api/v1/auth/reauth",
+            {"password": "Admin@12345678"}, self.admin_token)
+        if s != 200:
+            self.skipTest("Reauth failed")
         s, b = api_request("POST", "/api/v1/risk/evaluate", token=self.admin_token)
         self.assertEqual(s, 200)
         self.assertIn("events_created", b.get("data", {}))
