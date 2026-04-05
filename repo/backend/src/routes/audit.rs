@@ -4,7 +4,7 @@ use rocket::Route;
 use rocket::State;
 use sqlx::MySqlPool;
 
-use crate::middleware::auth_guard::AdminGuard;
+use crate::middleware::reauth_guard::ReauthAdminGuard;
 use crate::services::audit_service;
 use crate::utils::errors::ApiError;
 use crate::utils::response::ApiResponse;
@@ -12,7 +12,7 @@ use crate::utils::response::ApiResponse;
 #[get("/?<entity_type>&<entity_id>&<limit>")]
 pub async fn list_audit_logs(
     pool: &State<MySqlPool>,
-    _user: AdminGuard,
+    _user: ReauthAdminGuard,
     entity_type: Option<String>,
     entity_id: Option<i64>,
     limit: Option<i64>,

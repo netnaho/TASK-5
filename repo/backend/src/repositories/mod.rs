@@ -8,3 +8,6 @@ pub mod booking_repo;
 pub mod risk_repo;
 pub mod privacy_repo;
 pub mod webhook_repo;
+pub mod term_repo;
+pub mod notification_repo;
+pub mod login_rate_limit_repo;

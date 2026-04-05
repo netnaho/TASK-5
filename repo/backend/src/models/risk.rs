@@ -69,6 +69,8 @@ pub struct Subscription {
     pub user_id: i64,
     pub event_type: String,
     pub channel: String,
+    pub target_url: Option<String>,
+    pub signing_secret: Option<String>,
     pub is_active: bool,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,

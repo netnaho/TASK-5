@@ -16,6 +16,8 @@ pub struct User {
     pub is_active: bool,
     pub last_login_at: Option<NaiveDateTime>,
     pub last_reauth_at: Option<NaiveDateTime>,
+    pub failed_login_count: i32,
+    pub locked_until: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }

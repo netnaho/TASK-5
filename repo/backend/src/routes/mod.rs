@@ -8,3 +8,5 @@ pub mod tags;
 pub mod bookings;
 pub mod risk;
 pub mod privacy;
+pub mod terms;
+pub mod notifications;

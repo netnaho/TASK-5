@@ -35,6 +35,10 @@ class TestDataExportFlow(unittest.TestCase):
         cls.user_token = get_token("faculty", "Faculty@123456")
         cls.admin_token = get_token("admin", "Admin@12345678")
         cls.request_uuid = None
+        # Reauth admin so the review endpoint (now reauth-guarded) passes
+        if cls.admin_token:
+            api_request("POST", "/api/v1/auth/reauth",
+                {"password": "Admin@12345678"}, cls.admin_token)
 
     def test_01_create_export_request(self):
         if not self.user_token:
@@ -75,6 +79,10 @@ class TestDataDeletionFlow(unittest.TestCase):
         cls.user_token = get_token("student", "Student@12345")
         cls.admin_token = get_token("admin", "Admin@12345678")
         cls.request_uuid = None
+        # Reauth admin so the review endpoint (now reauth-guarded) passes
+        if cls.admin_token:
+            api_request("POST", "/api/v1/auth/reauth",
+                {"password": "Admin@12345678"}, cls.admin_token)
 
     def test_01_create_deletion_request(self):
         if not self.user_token:
@@ -86,12 +94,13 @@ class TestDataDeletionFlow(unittest.TestCase):
         self.assertEqual(s, 200)
         self.__class__.request_uuid = b["data"]["uuid"]
 
-    def test_02_admin_approves_deletion(self):
+    def test_02_admin_reviews_deletion(self):
+        """Admin rejects the deletion to avoid destroying the student account for other tests."""
         if not self.request_uuid or not self.admin_token:
             self.skipTest("No request or admin")
         s, b = api_request("POST", f"/api/v1/privacy/requests/{self.request_uuid}/review", {
-            "approved": True,
-            "admin_notes": "Deletion approved",
+            "approved": False,
+            "admin_notes": "Rejected in test to preserve account",
         }, self.admin_token)
         self.assertEqual(s, 200)
 
@@ -120,6 +129,38 @@ class TestSensitiveDataMasking(unittest.TestCase):
             if ssn_field:
                 self.assertIn("***", ssn_field["masked_value"])
                 self.assertNotIn("123-45-6789", ssn_field["masked_value"])
+
+
+class TestReauthPrivacyReview(unittest.TestCase):
+    """Verify that privacy request review requires recent reauth."""
+
+    @classmethod
+    def setUpClass(cls):
+        # Fresh login only — no reauth, so last_reauth_at is NULL
+        cls.admin_token = get_token("admin", "Admin@12345678")
+        cls.user_token = get_token("faculty", "Faculty@123456")
+        s, b = api_request("POST", "/api/v1/privacy/requests",
+            {"request_type": "rectify", "reason": "Reauth guard test"}, cls.user_token)
+        cls.request_uuid = b["data"]["uuid"] if s == 200 else None
+
+    def test_review_without_reauth_returns_403(self):
+        if not self.request_uuid:
+            self.skipTest("No privacy request created")
+        s, b = api_request("POST", f"/api/v1/privacy/requests/{self.request_uuid}/review",
+            {"approved": False, "admin_notes": "rejected without reauth"}, self.admin_token)
+        self.assertEqual(s, 403)
+        self.assertIn("reauth", b.get("message", "").lower())
+
+    def test_review_after_reauth_succeeds(self):
+        if not self.request_uuid:
+            self.skipTest("No privacy request created")
+        s, _ = api_request("POST", "/api/v1/auth/reauth",
+            {"password": "Admin@12345678"}, self.admin_token)
+        if s != 200:
+            self.skipTest("Reauth failed")
+        s, _ = api_request("POST", f"/api/v1/privacy/requests/{self.request_uuid}/review",
+            {"approved": True, "admin_notes": "Approved after reauth"}, self.admin_token)
+        self.assertEqual(s, 200)
 
 
 if __name__ == "__main__":

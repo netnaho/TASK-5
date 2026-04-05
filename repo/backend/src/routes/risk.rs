@@ -7,6 +7,7 @@ use validator::Validate;
 
 use crate::dto::risk::*;
 use crate::middleware::auth_guard::{AuthenticatedUser, AdminGuard};
+use crate::middleware::reauth_guard::ReauthRequired;
 use crate::services::risk_service;
 use crate::utils::errors::ApiError;
 use crate::utils::response::ApiResponse;
@@ -36,6 +37,7 @@ pub async fn list_events(
 pub async fn update_event(
     pool: &State<MySqlPool>,
     user: AdminGuard,
+    _reauth: ReauthRequired,
     uuid: String,
     body: Json<UpdateRiskEventRequest>,
 ) -> Result<Json<ApiResponse<String>>, (Status, Json<ApiError>)> {
@@ -48,6 +50,7 @@ pub async fn update_event(
 pub async fn run_evaluation(
     pool: &State<MySqlPool>,
     _user: AdminGuard,
+    _reauth: ReauthRequired,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (Status, Json<ApiError>)> {
     let count = risk_service::run_risk_evaluation(pool.inner())
         .await.map_err(|e| <(Status, Json<ApiError>)>::from(e))?;
@@ -66,8 +69,12 @@ pub async fn create_subscription(
             .collect::<Vec<_>>().join("; ");
         return Err((Status::BadRequest, Json(ApiError::bad_request(msg))));
     }
-    let sub = risk_service::create_subscription(pool.inner(), user.claims.user_id, &body.event_type, body.channel.as_deref())
-        .await.map_err(|e| <(Status, Json<ApiError>)>::from(e))?;
+    let sub = risk_service::create_subscription(
+        pool.inner(), user.claims.user_id, &body.event_type,
+        body.channel.as_deref(),
+        body.target_url.as_deref(),
+        body.signing_secret.as_deref(),
+    ).await.map_err(|e| <(Status, Json<ApiError>)>::from(e))?;
     Ok(ApiResponse::ok(sub))
 }
 
@@ -102,6 +109,7 @@ pub async fn create_posting(
 pub async fn add_blacklist(
     pool: &State<MySqlPool>,
     _user: AdminGuard,
+    _reauth: ReauthRequired,
     body: Json<AddBlacklistRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (Status, Json<ApiError>)> {
     if let Err(e) = body.validate() {

@@ -111,6 +111,7 @@ pub enum CourseStatus {
     PendingApproval,
     ApprovedScheduled,
     Published,
+    PendingUnpublish,
     Unpublished,
     Rejected,
 }
@@ -122,6 +123,7 @@ impl CourseStatus {
             CourseStatus::PendingApproval => "pending_approval",
             CourseStatus::ApprovedScheduled => "approved_scheduled",
             CourseStatus::Published => "published",
+            CourseStatus::PendingUnpublish => "pending_unpublish",
             CourseStatus::Unpublished => "unpublished",
             CourseStatus::Rejected => "rejected",
         }
@@ -133,6 +135,7 @@ impl CourseStatus {
             "pending_approval" => Some(CourseStatus::PendingApproval),
             "approved_scheduled" => Some(CourseStatus::ApprovedScheduled),
             "published" => Some(CourseStatus::Published),
+            "pending_unpublish" => Some(CourseStatus::PendingUnpublish),
             "unpublished" => Some(CourseStatus::Unpublished),
             "rejected" => Some(CourseStatus::Rejected),
             _ => None,

@@ -84,9 +84,10 @@ impl<'r> FromRequest<'r> for HmacVerified {
             )),
         };
 
-        // Build message and verify
-        let body_str = req.headers().get_one("X-HMAC-Body").unwrap_or("");
-        let message = hmac::build_signing_message(&key_id, &nonce, timestamp, body_str);
+        // Build message and verify — sign method+path, not a client-controlled header
+        let method = req.method().as_str();
+        let path = req.uri().path().as_str();
+        let message = hmac::build_signing_message(&key_id, &nonce, timestamp, method, path);
 
         if !hmac::verify_signature(&secret, &message, &signature) {
             return Outcome::Error((

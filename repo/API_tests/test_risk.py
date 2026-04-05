@@ -34,6 +34,10 @@ class TestRiskEngine(unittest.TestCase):
     def setUpClass(cls):
         cls.admin_token = get_token("admin", "Admin@12345678")
         cls.author_token = get_token("author", "Author@1234567")
+        # Reauth admin so reauth-guarded endpoints (blacklist, evaluate, update_event) pass
+        if cls.admin_token:
+            api_request("POST", "/api/v1/auth/reauth",
+                {"password": "Admin@12345678"}, cls.admin_token)
 
     def test_01_list_risk_rules(self):
         if not self.admin_token:
@@ -107,6 +111,100 @@ class TestRiskEngine(unittest.TestCase):
         s, b = api_request("GET", "/api/v1/risk/subscriptions", token=self.admin_token)
         self.assertEqual(s, 200)
         self.assertIsInstance(b["data"], list)
+
+    def test_10_webhook_subscription_requires_target_url(self):
+        """channel=webhook without target_url must be rejected with 400."""
+        if not self.admin_token:
+            self.skipTest("Admin login failed")
+        s, b = api_request("POST", "/api/v1/risk/subscriptions", {
+            "event_type": "risk_high",
+            "channel": "webhook",
+        }, self.admin_token)
+        self.assertEqual(s, 400)
+        self.assertIn("target_url", b.get("message", "").lower())
+
+    def test_11_webhook_subscription_with_valid_onprem_url(self):
+        """channel=webhook with a localhost URL must be accepted."""
+        if not self.admin_token:
+            self.skipTest("Admin login failed")
+        s, b = api_request("POST", "/api/v1/risk/subscriptions", {
+            "event_type": "risk_webhook_test",
+            "channel": "webhook",
+            "target_url": "http://localhost:9191/hook",
+        }, self.admin_token)
+        self.assertEqual(s, 200)
+        self.assertEqual(b["data"]["channel"], "webhook")
+        self.assertEqual(b["data"]["target_url"], "http://localhost:9191/hook")
+        # signing_secret must never appear in the response
+        self.assertNotIn("signing_secret", b["data"])
+
+    def test_12_webhook_subscription_with_public_url_rejected(self):
+        """channel=webhook with an external/public URL must be rejected with 400."""
+        if not self.admin_token:
+            self.skipTest("Admin login failed")
+        s, b = api_request("POST", "/api/v1/risk/subscriptions", {
+            "event_type": "risk_high",
+            "channel": "webhook",
+            "target_url": "http://example.com/hook",
+        }, self.admin_token)
+        self.assertEqual(s, 400)
+        self.assertIn("on-prem", b.get("message", "").lower())
+
+    def test_13_in_app_subscription_without_target_url_succeeds(self):
+        """Existing in_app subscription flow is unaffected."""
+        if not self.admin_token:
+            self.skipTest("Admin login failed")
+        s, b = api_request("POST", "/api/v1/risk/subscriptions", {
+            "event_type": "risk_medium",
+            "channel": "in_app",
+        }, self.admin_token)
+        self.assertEqual(s, 200)
+        self.assertIsNone(b["data"].get("target_url"))
+
+
+class TestReauthRiskOperations(unittest.TestCase):
+    """Verify that update_event and run_evaluation require recent reauth."""
+
+    @classmethod
+    def setUpClass(cls):
+        # Fresh login only — no reauth, so last_reauth_at is NULL
+        cls.admin_token = get_token("admin", "Admin@12345678")
+        s, b = api_request("GET", "/api/v1/risk/events", token=cls.admin_token)
+        cls.event_uuid = b["data"][0]["uuid"] if s == 200 and b.get("data") else None
+
+    def test_update_event_without_reauth_returns_403(self):
+        if not self.event_uuid:
+            self.skipTest("No risk events available")
+        s, b = api_request("PUT", f"/api/v1/risk/events/{self.event_uuid}",
+            {"status": "acknowledged"}, self.admin_token)
+        self.assertEqual(s, 403)
+        self.assertIn("reauth", b.get("message", "").lower())
+
+    def test_run_evaluation_without_reauth_returns_403(self):
+        if not self.admin_token:
+            self.skipTest("Admin login failed")
+        s, b = api_request("POST", "/api/v1/risk/evaluate", token=self.admin_token)
+        self.assertEqual(s, 403)
+        self.assertIn("reauth", b.get("message", "").lower())
+
+    def test_update_event_after_reauth_succeeds(self):
+        if not self.event_uuid:
+            self.skipTest("No risk events available")
+        s, _ = api_request("POST", "/api/v1/auth/reauth",
+            {"password": "Admin@12345678"}, self.admin_token)
+        if s != 200:
+            self.skipTest("Reauth failed")
+        s, _ = api_request("PUT", f"/api/v1/risk/events/{self.event_uuid}",
+            {"status": "acknowledged"}, self.admin_token)
+        self.assertEqual(s, 200)
+
+    def test_run_evaluation_after_reauth_succeeds(self):
+        if not self.admin_token:
+            self.skipTest("Admin login failed")
+        # Reauth already performed above within the 15-minute window
+        s, b = api_request("POST", "/api/v1/risk/evaluate", token=self.admin_token)
+        self.assertEqual(s, 200)
+        self.assertIn("events_created", b.get("data", {}))
 
 
 if __name__ == "__main__":

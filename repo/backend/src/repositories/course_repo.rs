@@ -45,6 +45,22 @@ pub async fn list_courses_by_department_and_term(pool: &MySqlPool, dept_id: i64,
         .bind(dept_id).bind(term_id).fetch_all(pool).await
 }
 
+/// Courses in a department for the active term, plus unscoped courses (term_id IS NULL).
+/// Used for dept_reviewer listings when an active term is configured.
+pub async fn list_courses_by_department_scoped(pool: &MySqlPool, dept_id: i64, term_id: i64) -> Result<Vec<Course>, sqlx::Error> {
+    sqlx::query_as::<_, Course>(
+        "SELECT * FROM courses WHERE department_id = ? AND (term_id = ? OR term_id IS NULL) ORDER BY updated_at DESC"
+    ).bind(dept_id).bind(term_id).fetch_all(pool).await
+}
+
+/// Published courses for the active term, plus unscoped published courses (term_id IS NULL).
+/// Used for faculty/student listings when an active term is configured.
+pub async fn list_published_courses_scoped(pool: &MySqlPool, term_id: i64) -> Result<Vec<Course>, sqlx::Error> {
+    sqlx::query_as::<_, Course>(
+        "SELECT * FROM courses WHERE status = 'published' AND (term_id = ? OR term_id IS NULL) ORDER BY title"
+    ).bind(term_id).fetch_all(pool).await
+}
+
 pub async fn update_course(
     pool: &MySqlPool, id: i64, title: Option<&str>, description: Option<&str>,
     department_id: Option<i64>, term_id: Option<i64>, max_enrollment: Option<i32>,
@@ -87,6 +103,11 @@ pub async fn create_section(pool: &MySqlPool, uuid: &str, course_id: i64, title:
 pub async fn find_section_by_uuid(pool: &MySqlPool, uuid: &str) -> Result<Option<CourseSection>, sqlx::Error> {
     sqlx::query_as::<_, CourseSection>("SELECT * FROM course_sections WHERE uuid = ?")
         .bind(uuid).fetch_optional(pool).await
+}
+
+pub async fn find_section_by_id(pool: &MySqlPool, id: i64) -> Result<Option<CourseSection>, sqlx::Error> {
+    sqlx::query_as::<_, CourseSection>("SELECT * FROM course_sections WHERE id = ?")
+        .bind(id).fetch_optional(pool).await
 }
 
 pub async fn list_sections(pool: &MySqlPool, course_id: i64) -> Result<Vec<CourseSection>, sqlx::Error> {
@@ -138,11 +159,31 @@ pub async fn delete_lesson(pool: &MySqlPool, id: i64) -> Result<(), sqlx::Error>
 
 // --- Media ---
 pub async fn create_media(pool: &MySqlPool, uuid: &str, lesson_id: Option<i64>, uploaded_by: i64, file_name: &str, file_path: &str, mime_type: &str, file_size_bytes: i64, checksum: Option<&str>, alt_text: Option<&str>, validated: bool, validation_error: Option<&str>) -> Result<u64, sqlx::Error> {
-    let status = if validated { "ready" } else { "failed" };
+    let status = if validation_error.is_some() {
+        "failed"
+    } else if validated {
+        "ready"
+    } else {
+        "pending_scan"
+    };
     let r = sqlx::query("INSERT INTO media_assets (uuid, lesson_id, uploaded_by, file_name, file_path, mime_type, file_size_bytes, checksum, alt_text, status, validated, validation_error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(uuid).bind(lesson_id).bind(uploaded_by).bind(file_name).bind(file_path).bind(mime_type).bind(file_size_bytes).bind(checksum).bind(alt_text).bind(status).bind(validated).bind(validation_error)
         .execute(pool).await?;
     Ok(r.last_insert_id())
+}
+
+pub async fn update_media_status(pool: &MySqlPool, id: i64, status: &str, validated: bool, validation_error: Option<&str>) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE media_assets SET status = ?, validated = ?, validation_error = ?, updated_at = NOW() WHERE id = ?")
+        .bind(status).bind(validated).bind(validation_error).bind(id)
+        .execute(pool).await?;
+    Ok(())
+}
+
+pub async fn count_unvalidated_media_for_course(pool: &MySqlPool, course_id: i64) -> Result<i64, sqlx::Error> {
+    let row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM media_assets ma JOIN lessons l ON ma.lesson_id = l.id JOIN course_sections cs ON l.section_id = cs.id WHERE cs.course_id = ? AND ma.status != 'ready'"
+    ).bind(course_id).fetch_one(pool).await?;
+    Ok(row.0)
 }
 
 pub async fn find_media_by_uuid(pool: &MySqlPool, uuid: &str) -> Result<Option<MediaAsset>, sqlx::Error> {

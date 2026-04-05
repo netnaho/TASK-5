@@ -25,3 +25,4 @@ hex = "0.4"
 rand = "0.8"
 aes-gcm = "0.10"
 base64 = "0.22"
+reqwest = { version = "0.12", features = ["json"] }

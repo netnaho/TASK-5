@@ -7,18 +7,33 @@ Enterprise-grade campus learning management and operations platform.
 ## Architecture
 
 ```
-┌──────────────┐     ┌──────────────────┐     ┌───────────┐
-│   Frontend    │────▶│   Backend API    │────▶│  MySQL    │
-│  Dioxus/WASM  │     │  Rust + Rocket   │     │   8.0     │
-│  nginx :3000  │     │    :8000         │     │  :3307    │
-└──────────────┘     └──────────────────┘     └───────────┘
-   SPA + proxy           /api/v1              Auto-migrated
+  Browser
+     │ HTTPS :443 / HTTP :80 (→ redirect)
+     ▼
+┌──────────────┐     ┌──────────────┐     ┌──────────────────┐     ┌───────────┐
+│    Proxy      │────▶│   Frontend   │────▶│   Backend API    │────▶│  MySQL    │
+│  nginx TLS    │     │ Dioxus/WASM  │     │  Rust + Rocket   │     │   8.0     │
+│  :80/:443     │     │ nginx :3000  │     │    :8000         │     │  :3307    │
+└──────────────┘     └──────────────┘     └──────────────────┘     └───────────┘
+  TLS termination      SPA + proxy              /api/v1              Auto-migrated
+  HTTP→HTTPS           (internal only)     (internal + dev port)
 ```
 
 - **Backend**: Layered architecture (routes → services → repositories → models), JWT auth, bcrypt passwords, HMAC signing, rate limiting
 - **Frontend**: Dioxus 0.6 WASM with role-aware navigation, toast notifications, modals, dark enterprise theme
 - **Database**: MySQL 8.0 with 35+ tables, auto-migrated via sqlx on startup
-- **Security**: AES-256-GCM field encryption, SSN/bank detail masking, re-auth for admin actions, nonce anti-replay
+- **Security**: AES-256-GCM field encryption, SSN/bank detail masking, re-auth for admin actions, nonce anti-replay, CSRF defense (see below)
+
+## Security: CSRF Defense Model
+
+This application uses **Bearer token authentication** (JWT in `Authorization` header), not cookie-based sessions. This inherently mitigates classic CSRF attacks because browsers do not automatically attach custom headers to cross-origin requests. The defense stack is:
+
+1. **Bearer token auth** — `Authorization: Bearer <token>` header is never auto-sent by browsers on cross-origin requests.
+2. **CORS allowlist** — Single-origin strict policy (`ALLOWED_ORIGIN` env var); cross-origin preflights for state-changing methods are blocked.
+3. **Origin header monitoring** — `CsrfOriginCheck` fairing logs warnings when state-changing requests (POST/PUT/PATCH/DELETE) arrive with unexpected `Origin` headers.
+4. **Proxy security headers** — HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy set at the TLS proxy layer.
+
+If the application migrates to cookie-based sessions in the future, an anti-CSRF token pattern (e.g., double-submit cookie or synchronizer token) must be added.
 
 ## How to Run
 
@@ -47,13 +62,18 @@ The Dioxus API client auto-detects the origin and routes API calls to the backen
 
 ## Service Addresses
 
-| Service  | URL                    | Description                    |
-|----------|------------------------|--------------------------------|
-| Frontend | http://localhost:3000   | Web UI (Dioxus/WASM via nginx) |
-| Backend  | http://localhost:8000   | REST API (Rocket)              |
-| Health   | http://localhost:8000/health | Backend health check       |
-| API Info | http://localhost:8000/api/v1/info | API version info       |
-| MySQL    | localhost:3307         | Database (external port)       |
+| Service  | URL                         | Description                              |
+|----------|-----------------------------|------------------------------------------|
+| App      | https://localhost            | Web UI via HTTPS proxy (self-signed cert)|
+| App (redirect) | http://localhost       | Redirects to HTTPS automatically         |
+| Backend  | http://localhost:8000        | **Dev-only** — via override file, not for CI/prod |
+| Health   | https://localhost/health     | Health check through proxy               |
+| API Info | http://localhost:8000/api/v1/info | API version info (direct)           |
+| MySQL    | localhost:3307               | Database (external port)                 |
+
+> **Self-signed certificate**: The dev proxy uses a self-signed TLS cert. Browsers will show a security warning — click "Advanced → Proceed" to continue. Use `curl -k` / `--insecure` in scripts.
+>
+> **Production**: Bind-mount real certificates over `/etc/nginx/certs/` in the proxy container before starting.
 
 ## Default Accounts
 
@@ -70,20 +90,39 @@ All accounts are seeded automatically on first startup.
 ## Verification Method
 
 ### Quick API Check
-```bash
-# Health
-curl http://localhost:8000/health
 
-# Login as admin
-curl -s -X POST http://localhost:8000/api/v1/auth/login \
+All API verification should use the HTTPS proxy (default path). Direct backend access on port 8000 is available **only in local development** via `docker-compose.override.yml` and must never be used in CI/CD, staging, or production.
+
+```bash
+# Health (HTTPS — primary verification path; -k for self-signed dev cert)
+curl -k https://localhost/health
+
+# Login as admin (HTTPS)
+curl -sk -X POST https://localhost/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"Admin@12345678"}' | jq .data.token
 ```
 
+<details>
+<summary>Direct backend access (local dev only)</summary>
+
+The `docker-compose.override.yml` file (auto-merged by `docker compose up`) exposes port 8000 on the host for local development convenience. To run without direct backend exposure:
+
+```bash
+docker compose -f docker-compose.yml up   # no override, HTTPS-only
+```
+
+```bash
+# Direct backend (dev only, no TLS)
+curl http://localhost:8000/health
+```
+
+</details>
+
 ### UI Verification Flows
 
 **1. Login & Role-Based Navigation**
-1. Open http://localhost:3000 → redirects to login page
+1. Open https://localhost → accept self-signed cert warning → redirects to login page
 2. Login as `admin` / `Admin@12345678` → full sidebar: Dashboard, Courses, Approvals, Bookings, Risk & Compliance, Audit Trail, Privacy & Data
 3. Logout, login as `student` / `Student@12345` → minimal sidebar: Dashboard, Courses, Bookings, Privacy & Data (no admin sections)
 
@@ -105,7 +144,23 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 
 **4. Scheduled Publish**
 - Submit with future effective date → course status becomes `approved_scheduled`
-- Admin can trigger `POST /api/v1/approvals/process-scheduled` to execute pending transitions
+- `POST /api/v1/approvals/process-scheduled` requires HMAC headers (not admin JWT). Use the dev scheduler key:
+
+```bash
+# Process scheduled transitions (HMAC-authenticated, not JWT)
+# Required headers: X-HMAC-Key-Id, X-HMAC-Nonce, X-HMAC-Timestamp, X-HMAC-Signature
+NONCE=$(uuidgen)
+TIMESTAMP=$(date +%s)
+BODY=""
+STRING_TO_SIGN="POST\n/api/v1/approvals/process-scheduled\n${TIMESTAMP}\n${NONCE}\n${BODY}"
+SIGNATURE=$(printf "$STRING_TO_SIGN" | openssl dgst -sha256 -hmac "campus-learn-hmac-dev-secret-2024" -binary | base64)
+
+curl -sk -X POST https://localhost/api/v1/approvals/process-scheduled \
+  -H "X-HMAC-Key-Id: dev-scheduler-key" \
+  -H "X-HMAC-Nonce: $NONCE" \
+  -H "X-HMAC-Timestamp: $TIMESTAMP" \
+  -H "X-HMAC-Signature: $SIGNATURE"
+```
 
 **5. Resource Booking**
 1. Login as `faculty` → Bookings → see Resources tab with rooms/labs/parking
@@ -144,10 +199,11 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 # All tests with summary
 ./run_tests.sh
 
-# Unit tests only (no services required) — 127 tests
+# Unit tests only (no services required) — 244+ tests
 python3 -m unittest discover -s unit_tests -p "test_*.py" -v
 
 # API tests only (requires running services)
+# Default: direct backend port for test speed. For HTTPS-verified testing, use the proxy URL.
 API_BASE_URL=http://localhost:8000 python3 -m unittest discover -s API_tests -p "test_*.py" -v
 
 # Single test file
@@ -156,7 +212,7 @@ python3 -m unittest unit_tests.backend.test_booking_rules -v
 
 ### Test Coverage
 
-**Unit Tests (127):**
+**Unit Tests (244+):**
 - Password complexity validation (13 tests)
 - RBAC permission checks and self-approval prevention (14 tests)
 - Version diff generation (8 tests)
@@ -178,18 +234,21 @@ python3 -m unittest unit_tests.backend.test_booking_rules -v
 - Audit: admin access, role enforcement
 - Health/Info: endpoint availability
 
-## API Endpoints (52 total)
+## API Endpoints (55 total)
 
-### Auth (4)
+### Auth (5)
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | /api/v1/auth/login | No | Login |
 | GET | /api/v1/auth/me | Bearer | Current user |
 | POST | /api/v1/auth/change-password | Bearer | Change password |
 | POST | /api/v1/auth/reauth | Bearer | Re-authenticate |
+| POST | /api/v1/auth/hmac-keys | Bearer (Admin) | Provision HMAC keys |
 
-### Courses (14)
-CRUD for courses (5), sections (4), lessons (3), media (1), versions (1)
+> **Login rate limiting**: Login attempts are limited to 10 requests/min per IP address. After 5 consecutive failed login attempts for an account, the account is locked out for 15 minutes.
+
+### Courses (16)
+CRUD for courses (5), sections (4), lessons (3), media upload (1), media register (1), media validate (1), versions (1)
 
 ### Approvals (5)
 Submit, review, get, queue, process-scheduled
@@ -197,8 +256,8 @@ Submit, review, get, queue, process-scheduled
 ### Tags (2)
 Create, list
 
-### Bookings (8)
-Resources, availability, create, reschedule, cancel, my bookings, breaches, restrictions
+### Bookings (12)
+Resources, availability, create, reschedule, cancel, approve, reject, my bookings, breaches, restrictions, pending-approvals, booker-breaches
 
 ### Risk (8)
 Rules, events, update event, evaluate, postings, blacklist, subscriptions (create/list)
@@ -241,6 +300,9 @@ repo/
 │   │   └── types/              # All API response types
 │   ├── assets/main.css         # 200-line design system
 │   └── Dockerfile
+├── proxy/                      # nginx TLS termination proxy
+│   ├── nginx.conf              # HTTP→HTTPS redirect + TLS reverse proxy
+│   └── Dockerfile              # Builds nginx with self-signed dev cert
 ├── mysql/init/                 # DB charset init
 ├── unit_tests/                 # 127 Python unit tests
 ├── API_tests/                  # 60+ Python API integration tests

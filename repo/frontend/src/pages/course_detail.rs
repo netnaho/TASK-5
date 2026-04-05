@@ -14,6 +14,11 @@ pub fn CourseDetail(uuid: String) -> Element {
     let mut release_notes = use_signal(String::new);
     let mut effective_date = use_signal(String::new);
     let mut active_tab = use_signal(|| "content");
+    let mut new_tag_name = use_signal(String::new);
+    let mut tags = use_signal(|| Vec::<TagResponse>::new());
+    let mut show_unpublish = use_signal(|| false);
+    let mut unpublish_notes = use_signal(String::new);
+    let mut unpublish_date = use_signal(String::new);
     let auth = AUTH.read();
     let can_author = auth.role() == "admin" || auth.role() == "staff_author";
     let uuid_clone = uuid.clone();
@@ -78,6 +83,9 @@ pub fn CourseDetail(uuid: String) -> Element {
                             Link { to: crate::Route::CourseEditor { uuid: c.uuid.clone() }, class: "btn btn-outline", "Edit" }
                             button { class: "btn btn-primary", onclick: move |_| show_submit.set(true), "Submit for Approval" }
                         }
+                        if can_author && c.status == "published" {
+                            button { class: "btn btn-outline", onclick: move |_| show_unpublish.set(true), "Unpublish" }
+                        }
                     }
                 }
             }
@@ -94,9 +102,39 @@ pub fn CourseDetail(uuid: String) -> Element {
                 }
             }
 
+            // Tag management for authors
+            if can_author && (c.status == "draft" || c.status == "rejected") {
+                div { class: "tag-management",
+                    input { class: "form-input", r#type: "text", placeholder: "Add tag...", value: "{new_tag_name}", oninput: move |e| new_tag_name.set(e.value()) }
+                    button { class: "btn btn-sm btn-outline",
+                        onclick: {
+                            let uuid = uuid.clone();
+                            move |_| {
+                                let name = new_tag_name.read().clone();
+                                let u = uuid.clone();
+                                if !name.is_empty() {
+                                    spawn(async move {
+                                        match api::create_tag(&name).await {
+                                            Ok(_) => {
+                                                ToastManager::success("Tag created");
+                                                new_tag_name.set(String::new());
+                                                if let Ok(r) = api::get_course(&u).await { course.set(Some(r.data)); }
+                                            }
+                                            Err(e) => ToastManager::error(format!("Failed: {}", e)),
+                                        }
+                                    });
+                                }
+                            }
+                        },
+                        "Add Tag"
+                    }
+                }
+            }
+
             // Tabs
             div { class: "tabs",
                 button { class: if *active_tab.read() == "content" { "tab active" } else { "tab" }, onclick: move |_| active_tab.set("content"), "Content" }
+                button { class: if *active_tab.read() == "media" { "tab active" } else { "tab" }, onclick: move |_| active_tab.set("media"), "Media" }
                 button { class: if *active_tab.read() == "versions" { "tab active" } else { "tab" }, onclick: move |_| active_tab.set("versions"), "Versions ({versions.read().len()})" }
             }
 
@@ -119,6 +157,20 @@ pub fn CourseDetail(uuid: String) -> Element {
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            if *active_tab.read() == "media" {
+                div { class: "media-section",
+                    h3 { "Media Assets" }
+                    p { class: "text-muted", "Upload and validate media files for this course. All media must be validated before submitting for approval." }
+                    if can_author {
+                        div { class: "media-upload-area",
+                            p { "Use the API endpoint POST /api/v1/courses/media/upload to upload files (PDF, MP4, PNG, max 500MB)." }
+                            p { "Then validate each asset via POST /api/v1/courses/media/{{uuid}}/validate." }
+                            p { class: "text-muted", "Media assets in 'pending_scan' status must be validated to 'ready' before course approval submission." }
                         }
                     }
                 }
@@ -153,6 +205,39 @@ pub fn CourseDetail(uuid: String) -> Element {
                             input { class: "form-input", required: true, placeholder: "e.g. 06/15/2025 09:00 AM", value: "{effective_date}", oninput: move |e| effective_date.set(e.value()) }
                         }
                         button { r#type: "submit", class: "btn btn-primary btn-full", "Submit" }
+                    }
+                }
+            }
+            if *show_unpublish.read() {
+                Modal { title: "Request Unpublish".to_string(), on_close: move |_| show_unpublish.set(false),
+                    form { class: "form", onsubmit: {
+                        let uuid = uuid.clone();
+                        move |evt: Event<FormData>| {
+                            evt.prevent_default();
+                            let notes = unpublish_notes.read().clone();
+                            let date = unpublish_date.read().clone();
+                            let u = uuid.clone();
+                            spawn(async move {
+                                match api::submit_for_unpublish(&u, &notes, &date).await {
+                                    Ok(_) => {
+                                        ToastManager::success("Unpublish request submitted");
+                                        show_unpublish.set(false);
+                                        if let Ok(r) = api::get_course(&u).await { course.set(Some(r.data)); }
+                                    }
+                                    Err(e) => ToastManager::error(format!("Failed: {}", e)),
+                                }
+                            });
+                        }
+                    },
+                        div { class: "form-group",
+                            label { "Reason (required)" }
+                            textarea { class: "form-input form-textarea", required: true, placeholder: "Why unpublish?", value: "{unpublish_notes}", oninput: move |e| unpublish_notes.set(e.value()) }
+                        }
+                        div { class: "form-group",
+                            label { "Effective Date (MM/DD/YYYY HH:MM AM/PM)" }
+                            input { class: "form-input", required: true, placeholder: "e.g. 06/15/2025 09:00 AM", value: "{unpublish_date}", oninput: move |e| unpublish_date.set(e.value()) }
+                        }
+                        button { r#type: "submit", class: "btn btn-primary btn-full", "Submit Unpublish Request" }
                     }
                 }
             }

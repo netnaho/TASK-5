@@ -5,6 +5,10 @@ use validator::Validate;
 pub struct CreateDataRequest {
     pub request_type: String,
     pub reason: Option<String>,
+    /// Required for rectify requests: the field to update (email, full_name)
+    pub field_name: Option<String>,
+    /// Required for rectify requests: the new value
+    pub new_value: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

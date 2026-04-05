@@ -3,9 +3,11 @@ address = "0.0.0.0"
 port = 8000
 workers = 4
 log_level = "normal"
+limits = { file = "500 MiB", data-form = "500 MiB" }
 
 [release]
 address = "0.0.0.0"
 port = 8000
 workers = 8
 log_level = "critical"
+limits = { file = "500 MiB", data-form = "500 MiB" }

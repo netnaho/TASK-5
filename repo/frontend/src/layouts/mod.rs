@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 use crate::auth::AUTH;
 use crate::api;
-use crate::components::LoadingSpinner;
+use crate::components::{LoadingSpinner, NotificationBell};
 
 #[component]
 pub fn MainLayout() -> Element {
@@ -42,15 +42,25 @@ pub fn MainLayout() -> Element {
         };
     }
 
+    let mut sidebar_open = use_signal(|| false);
+
     rsx! {
         div { class: "app-container",
-            nav { class: "sidebar",
+            // Mobile hamburger toggle
+            button {
+                class: "mobile-nav-toggle",
+                onclick: move |_| { let current = *sidebar_open.peek(); sidebar_open.set(!current); },
+                span { class: "hamburger-icon", "☰" }
+            }
+            nav { class: if *sidebar_open.read() { "sidebar sidebar-open" } else { "sidebar" },
                 div { class: "sidebar-header",
                     h2 { class: "sidebar-title", "CampusLearn" }
                     p { class: "sidebar-subtitle", "Operations Suite" }
+                    NotificationBell {}
                 }
                 div { class: "sidebar-nav",
                     Link { to: crate::Route::Dashboard {}, class: "nav-item", "Dashboard" }
+                    Link { to: crate::Route::Notifications {}, class: "nav-item", "Notifications" }
 
                     div { class: "nav-section-label", "ACADEMIC" }
                     Link { to: crate::Route::Courses {}, class: "nav-item", "Courses" }

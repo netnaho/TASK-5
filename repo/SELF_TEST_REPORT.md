@@ -115,6 +115,16 @@
 | Dead links in UI | PASS | All sidebar links route to implemented pages. |
 | Placeholder-only screens | PASS | All 10 pages have real data binding and interaction. |
 
+## Audit Boundary Qualifications
+
+The following notes clarify the scope of static (code-level) verification versus runtime verification:
+
+- **Static audit boundary**: This report is based on source code analysis. Claims about runtime behavior (e.g., "webhook delivery works with exponential backoff", "rate limiting enforced at 120 req/min", "breach auto-restriction triggers after 3 breaches") represent code-level implementation verification, not runtime observation. These behaviors can only be fully verified by running the system and executing the relevant workflows.
+- **Webhook delivery**: The backoff logic (`POW(2, attempts) * 30 SECOND`) and dead-letter handling are implemented in code. Actual delivery reliability depends on runtime conditions (network, target availability) that cannot be verified statically.
+- **Rate limiting**: The sliding window implementation and DB-backed tracking are present in code. Actual enforcement under concurrent load requires runtime testing.
+- **Scheduled transitions**: The `process-scheduled` endpoint and transition logic are implemented. Correct timing behavior depends on cron scheduling and runtime execution.
+- **Encryption at rest**: AES-256-GCM implementation is present. Key management and actual encrypted storage can only be fully verified at runtime with data in the database.
+
 ## Summary
 
 - **Total Requirements Checked**: 65

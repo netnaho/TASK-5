@@ -19,6 +19,7 @@ use pages::bookings::Bookings;
 use pages::risk::Risk;
 use pages::privacy::Privacy;
 use pages::audit::Audit;
+use pages::notifications::Notifications;
 
 fn main() {
     tracing_wasm::set_as_global_default();
@@ -76,6 +77,8 @@ pub enum Route {
     Privacy {},
     #[route("/audit")]
     Audit {},
+    #[route("/notifications")]
+    Notifications {},
     #[end_layout]
     #[route("/login")]
     Login {},

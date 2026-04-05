@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 use crate::api;
+use crate::auth::AUTH;
 use crate::components::*;
 use crate::types::*;
 
@@ -9,8 +10,12 @@ pub fn Bookings() -> Element {
     let mut bookings = use_signal(|| Vec::<BookingResponse>::new());
     let mut breaches = use_signal(|| Vec::<BreachResponse>::new());
     let mut restrictions = use_signal(|| Vec::<RestrictionResponse>::new());
+    let mut pending_approvals = use_signal(|| Vec::<BookingResponse>::new());
+    let mut availability_slots = use_signal(|| Vec::<AvailabilitySlot>::new());
     let mut loading = use_signal(|| true);
     let mut active_tab = use_signal(|| "bookings");
+    let auth = AUTH.read();
+    let is_reviewer = auth.role() == "admin" || auth.role() == "dept_reviewer";
     let mut show_book = use_signal(|| false);
     let mut sel_resource = use_signal(String::new);
     let mut book_title = use_signal(String::new);
@@ -28,6 +33,7 @@ pub fn Bookings() -> Element {
             if let Ok(r) = api::my_bookings().await { bookings.set(r.data); }
             if let Ok(r) = api::my_breaches().await { breaches.set(r.data); }
             if let Ok(r) = api::my_restrictions().await { restrictions.set(r.data); }
+            if let Ok(r) = api::pending_approvals().await { pending_approvals.set(r.data); }
             loading.set(false);
         });
     };
@@ -115,6 +121,14 @@ pub fn Bookings() -> Element {
                         span { class: "tab-badge", "{breaches.read().len()}" }
                     }
                 }
+                if is_reviewer {
+                    button { class: if *active_tab.read() == "approvals" { "tab active" } else { "tab" }, onclick: move |_| active_tab.set("approvals"),
+                        "Pending Approvals"
+                        if !pending_approvals.read().is_empty() {
+                            span { class: "tab-badge", "{pending_approvals.read().len()}" }
+                        }
+                    }
+                }
             }
 
             if *active_tab.read() == "bookings" {
@@ -183,6 +197,60 @@ pub fn Bookings() -> Element {
                                 td { "{b.description}" }
                                 td { StatusBadge { status: b.status.clone() } }
                                 td { class: "td-muted", "{b.created_at}" }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if *active_tab.read() == "approvals" && is_reviewer {
+                if pending_approvals.read().is_empty() {
+                    EmptyState { title: "No pending approvals".to_string(), description: Some("All bookings have been reviewed.".to_string()) }
+                } else {
+                    DataTable { headers: vec!["Resource".into(), "Title".into(), "Booked By".into(), "Start".into(), "End".into(), "Actions".into()],
+                        for b in pending_approvals.read().iter() {
+                            tr {
+                                td { "{b.resource_name.clone().unwrap_or_default()}" }
+                                td { "{b.title}" }
+                                td { "User #{b.booked_by}" }
+                                td { class: "td-muted", "{b.start_time}" }
+                                td { class: "td-muted", "{b.end_time}" }
+                                td {
+                                    div { class: "btn-row-inline",
+                                        button {
+                                            class: "btn btn-xs btn-primary",
+                                            onclick: { let u = b.uuid.clone(); move |_| {
+                                                let uuid = u.clone();
+                                                spawn(async move {
+                                                    match api::approve_booking(&uuid).await {
+                                                        Ok(_) => {
+                                                            ToastManager::success("Booking approved");
+                                                            if let Ok(r) = api::pending_approvals().await { pending_approvals.set(r.data); }
+                                                        }
+                                                        Err(e) => ToastManager::error(format!("{}", e)),
+                                                    }
+                                                });
+                                            }},
+                                            "Approve"
+                                        }
+                                        button {
+                                            class: "btn btn-xs btn-danger-outline",
+                                            onclick: { let u = b.uuid.clone(); move |_| {
+                                                let uuid = u.clone();
+                                                spawn(async move {
+                                                    match api::reject_booking(&uuid, None).await {
+                                                        Ok(_) => {
+                                                            ToastManager::success("Booking rejected");
+                                                            if let Ok(r) = api::pending_approvals().await { pending_approvals.set(r.data); }
+                                                        }
+                                                        Err(e) => ToastManager::error(format!("{}", e)),
+                                                    }
+                                                });
+                                            }},
+                                            "Reject"
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

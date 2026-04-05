@@ -28,11 +28,11 @@ class TestHealthEndpoint(unittest.TestCase):
 
     def test_health_returns_ok_status(self):
         _, body = api_get("/health")
-        self.assertEqual(body["status"], "ok")
+        self.assertEqual(body["data"]["status"], "ok")
 
     def test_health_returns_service_name(self):
         _, body = api_get("/health")
-        self.assertEqual(body["service"], "campus-learn-backend")
+        self.assertEqual(body["data"]["service"], "campus-learn-backend")
 
 
 class TestInfoEndpoint(unittest.TestCase):
@@ -42,11 +42,11 @@ class TestInfoEndpoint(unittest.TestCase):
 
     def test_info_returns_name(self):
         _, body = api_get("/api/v1/info")
-        self.assertEqual(body["name"], "CampusLearn Operations Suite")
+        self.assertEqual(body["data"]["name"], "CampusLearn Operations Suite")
 
     def test_info_returns_api_version(self):
         _, body = api_get("/api/v1/info")
-        self.assertEqual(body["api_version"], "v1")
+        self.assertEqual(body["data"]["api_version"], "v1")
 
 
 if __name__ == "__main__":

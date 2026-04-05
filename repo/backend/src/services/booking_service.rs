@@ -5,6 +5,7 @@ use chrono::{NaiveDateTime, Duration, Utc, NaiveTime, Timelike};
 use crate::dto::booking::*;
 use crate::models::booking::*;
 use crate::repositories::{booking_repo, audit_repo, security_repo};
+use crate::services::{notification_service, term_service};
 use crate::utils::errors::AppError;
 
 pub async fn list_resources(pool: &MySqlPool) -> Result<Vec<ResourceResponse>, AppError> {
@@ -14,7 +15,9 @@ pub async fn list_resources(pool: &MySqlPool) -> Result<Vec<ResourceResponse>, A
         location: r.location, capacity: r.capacity, description: r.description,
         open_time: r.open_time.format("%H:%M").to_string(),
         close_time: r.close_time.format("%H:%M").to_string(),
-        max_booking_hours: r.max_booking_hours, is_active: r.is_active,
+        max_booking_hours: r.max_booking_hours,
+        requires_approval: r.requires_approval, is_active: r.is_active,
+        department_id: r.department_id,
     }).collect())
 }
 
@@ -75,6 +78,9 @@ pub async fn create_booking(
         return Err(AppError::Forbidden("You have an active booking restriction due to policy breaches".to_string()));
     }
 
+    // Enforce active term acceptance
+    term_service::check_active_term_accepted(pool, user_id).await?;
+
     // Parse times
     let start_dt = parse_datetime(&req.start_time)?;
     let end_dt = parse_datetime(&req.end_time)?;
@@ -101,9 +107,9 @@ pub async fn create_booking(
         )));
     }
 
-    // Validate: max duration for room type
-    let duration_hours = (end_dt - start_dt).num_hours();
-    if duration_hours > resource.max_booking_hours as i64 {
+    // Validate: max duration for room type (use minutes for precision)
+    let duration_minutes = (end_dt - start_dt).num_minutes();
+    if duration_minutes > (resource.max_booking_hours as i64) * 60 {
         return Err(AppError::Validation(format!(
             "Maximum booking duration for this resource is {} hours", resource.max_booking_hours
         )));
@@ -121,10 +127,13 @@ pub async fn create_booking(
     let start_str = start_dt.format("%Y-%m-%d %H:%M:%S").to_string();
     let end_str = end_dt.format("%Y-%m-%d %H:%M:%S").to_string();
 
+    // Determine initial status based on resource approval requirement
+    let initial_status = if resource.requires_approval { "pending" } else { "confirmed" };
+
     // Atomic booking with conflict prevention
     booking_repo::create_booking_atomic(
         pool, &uuid, resource.id, user_id, &req.title,
-        req.description.as_deref(), &start_str, &end_str,
+        req.description.as_deref(), &start_str, &end_str, initial_status,
     ).await.map_err(|e| {
         let msg = e.to_string();
         if msg.contains("BOOKING_CONFLICT") {
@@ -139,16 +148,39 @@ pub async fn create_booking(
     let _ = audit_repo::create_audit_log(
         pool, &Uuid::new_v4().to_string(), Some(user_id), "booking.create",
         "booking", None, None,
-        Some(&serde_json::json!({"resource": resource.name, "start": start_str, "end": end_str})),
+        Some(&serde_json::json!({"resource": resource.name, "start": start_str, "end": end_str, "status": initial_status})),
         None, None, correlation_id,
     ).await;
+
+    if initial_status == "pending" {
+        let _ = notification_service::notify_user(
+            pool, user_id,
+            "Booking Submitted for Approval",
+            &format!("Your booking '{}' has been submitted and is pending approval.", req.title),
+            "booking", Some("booking"), Some(&uuid),
+        ).await;
+        let _ = notification_service::notify_department_role(
+            pool, resource.department_id, "dept_reviewer",
+            "New Booking Awaiting Approval",
+            &format!("A booking '{}' for '{}' requires approval.", req.title, resource.name),
+            "booking", Some("booking"), Some(&uuid),
+        ).await;
+    } else {
+        let _ = notification_service::notify_user(
+            pool, user_id,
+            "Booking Confirmed",
+            &format!("Your booking '{}' has been confirmed.", req.title),
+            "booking", Some("booking"), Some(&uuid),
+        ).await;
+    }
 
     Ok(BookingResponse {
         uuid, resource_id: resource.id, resource_name: Some(resource.name),
         booked_by: user_id, title: req.title.clone(),
         description: req.description.clone(),
         start_time: start_str, end_time: end_str,
-        status: "confirmed".to_string(), reschedule_count: 0,
+        status: initial_status.to_string(), reschedule_count: 0,
+        approved_by: None, approved_at: None,
         created_at: Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string(),
     })
 }
@@ -186,43 +218,44 @@ pub async fn reschedule_booking(
         return Err(AppError::Validation("New time must be within resource operating hours".to_string()));
     }
 
-    // Check duration
-    let duration = (new_end - new_start).num_hours();
-    if duration > resource.max_booking_hours as i64 {
+    // Check duration (use minutes for precision)
+    let duration_minutes = (new_end - new_start).num_minutes();
+    if duration_minutes > (resource.max_booking_hours as i64) * 60 {
         return Err(AppError::Validation(format!("Max {} hours", resource.max_booking_hours)));
     }
 
     let new_start_str = new_start.format("%Y-%m-%d %H:%M:%S").to_string();
     let new_end_str = new_end.format("%Y-%m-%d %H:%M:%S").to_string();
 
-    // Check conflicts (exclude current booking)
-    let conflicts = booking_repo::find_conflicts(pool, booking.resource_id, &new_start_str, &new_end_str).await?;
-    let real_conflicts: Vec<_> = conflicts.into_iter().filter(|b| b.id != booking.id).collect();
-    if !real_conflicts.is_empty() {
-        return Err(AppError::Validation("New time conflicts with existing booking".to_string()));
-    }
-
     let orig_start = booking.start_time.format("%Y-%m-%d %H:%M:%S").to_string();
     let orig_end = booking.end_time.format("%Y-%m-%d %H:%M:%S").to_string();
 
-    booking_repo::create_reschedule_record(
-        pool, &Uuid::new_v4().to_string(), booking.id, booking.reschedule_count + 1,
-        user_id, &orig_start, &orig_end, &new_start_str, &new_end_str, req.reason.as_deref(),
-    ).await?;
-
-    booking_repo::update_booking_times(pool, booking.id, &new_start_str, &new_end_str).await?;
-    booking_repo::increment_reschedule_count(pool, booking.id).await?;
+    booking_repo::reschedule_booking_atomic(
+        pool, booking.id, booking.resource_id,
+        &Uuid::new_v4().to_string(),
+        booking.reschedule_count + 1,
+        user_id,
+        &orig_start, &orig_end,
+        &new_start_str, &new_end_str,
+        req.reason.as_deref(),
+    ).await.map_err(|e| {
+        if e.to_string().contains("BOOKING_CONFLICT") {
+            AppError::Validation("New time conflicts with existing booking".to_string())
+        } else {
+            AppError::Internal(e.to_string())
+        }
+    })?;
 
     Ok(())
 }
 
 pub async fn cancel_booking(
-    pool: &MySqlPool, booking_uuid: &str, user_id: i64, correlation_id: Option<&str>,
+    pool: &MySqlPool, booking_uuid: &str, user_id: i64, role: &str, correlation_id: Option<&str>,
 ) -> Result<(), AppError> {
     let booking = booking_repo::find_booking_by_uuid(pool, booking_uuid).await?
         .ok_or_else(|| AppError::NotFound("Booking not found".to_string()))?;
 
-    if booking.booked_by != user_id && false { // Admin can cancel any
+    if booking.booked_by != user_id && role != "admin" {
         return Err(AppError::Forbidden("Not your booking".to_string()));
     }
 
@@ -232,17 +265,24 @@ pub async fn cancel_booking(
 
     booking_repo::update_booking_status(pool, booking.id, "cancelled").await?;
 
-    // Late cancellation check: within 2 hours of start creates a breach
+    // Late cancellation check: within 2 hours of start creates a breach (only for confirmed bookings)
     let now = Utc::now().naive_utc();
     let hours_until_start = (booking.start_time - now).num_hours();
 
-    if hours_until_start < LATE_CANCEL_HOURS && booking.start_time > now {
+    if booking.status == "confirmed" && hours_until_start < LATE_CANCEL_HOURS && booking.start_time > now {
         let breach_uuid = Uuid::new_v4().to_string();
         booking_repo::create_breach(
             pool, &breach_uuid, booking.booked_by, Some(booking.id),
             "late_cancellation", "medium",
             &format!("Booking cancelled within {} hours of start time", LATE_CANCEL_HOURS),
         ).await?;
+
+        let _ = notification_service::notify_user(
+            pool, booking.booked_by,
+            "Late Cancellation Recorded",
+            "A late cancellation breach has been recorded on your account.",
+            "booking", None, None,
+        ).await;
 
         // Check if user hit breach threshold -> auto-restrict
         let breach_count = booking_repo::count_recent_breaches(pool, booking.booked_by, BREACH_WINDOW_DAYS).await?;
@@ -264,6 +304,13 @@ pub async fn cancel_booking(
                     &format!("Auto-restricted: {} breaches in {} days", breach_count, BREACH_WINDOW_DAYS),
                     None, correlation_id,
                 ).await;
+
+                let _ = notification_service::notify_user(
+                    pool, booking.booked_by,
+                    "Booking Privileges Suspended",
+                    &format!("{} policy breaches in {} days triggered an automatic booking suspension.", breach_count, BREACH_WINDOW_DAYS),
+                    "booking", None, None,
+                ).await;
             }
         }
     }
@@ -273,6 +320,91 @@ pub async fn cancel_booking(
         "booking", Some(booking.id), None,
         Some(&serde_json::json!({"hours_until_start": hours_until_start})),
         None, None, correlation_id,
+    ).await;
+
+    Ok(())
+}
+
+pub async fn approve_booking(
+    pool: &MySqlPool, booking_uuid: &str, reviewer_id: i64,
+    reviewer_role: &str, reviewer_department_id: Option<i64>,
+    correlation_id: Option<&str>,
+) -> Result<(), AppError> {
+    let booking = booking_repo::find_booking_by_uuid(pool, booking_uuid).await?
+        .ok_or_else(|| AppError::NotFound("Booking not found".to_string()))?;
+
+    if booking.status != "pending" {
+        return Err(AppError::Validation("Only pending bookings can be approved".to_string()));
+    }
+
+    // Department scope check: non-admin reviewers can only approve bookings for resources in their department
+    if reviewer_role != "admin" {
+        let resource = booking_repo::find_resource_by_id(pool, booking.resource_id).await?
+            .ok_or_else(|| AppError::Internal("Resource not found".to_string()))?;
+        if let Some(res_dept) = resource.department_id {
+            if reviewer_department_id != Some(res_dept) {
+                return Err(AppError::Forbidden("You can only approve bookings for resources in your department".to_string()));
+            }
+        }
+    }
+
+    booking_repo::approve_booking(pool, booking.id, reviewer_id).await?;
+
+    let _ = audit_repo::create_audit_log(
+        pool, &Uuid::new_v4().to_string(), Some(reviewer_id), "booking.approve",
+        "booking", Some(booking.id), None,
+        Some(&serde_json::json!({"booking_uuid": booking_uuid})),
+        None, None, correlation_id,
+    ).await;
+
+    let _ = notification_service::notify_user(
+        pool, booking.booked_by,
+        "Booking Approved",
+        &format!("Your booking '{}' has been approved.", booking.title),
+        "booking", Some("booking"), Some(&booking.uuid),
+    ).await;
+
+    Ok(())
+}
+
+pub async fn reject_booking(
+    pool: &MySqlPool, booking_uuid: &str, reviewer_id: i64,
+    reviewer_role: &str, reviewer_department_id: Option<i64>,
+    reason: Option<&str>, correlation_id: Option<&str>,
+) -> Result<(), AppError> {
+    let booking = booking_repo::find_booking_by_uuid(pool, booking_uuid).await?
+        .ok_or_else(|| AppError::NotFound("Booking not found".to_string()))?;
+
+    if booking.status != "pending" {
+        return Err(AppError::Validation("Only pending bookings can be rejected".to_string()));
+    }
+
+    // Department scope check
+    if reviewer_role != "admin" {
+        let resource = booking_repo::find_resource_by_id(pool, booking.resource_id).await?
+            .ok_or_else(|| AppError::Internal("Resource not found".to_string()))?;
+        if let Some(res_dept) = resource.department_id {
+            if reviewer_department_id != Some(res_dept) {
+                return Err(AppError::Forbidden("You can only reject bookings for resources in your department".to_string()));
+            }
+        }
+    }
+
+    booking_repo::reject_booking(pool, booking.id).await?;
+
+    let _ = audit_repo::create_audit_log(
+        pool, &Uuid::new_v4().to_string(), Some(reviewer_id), "booking.reject",
+        "booking", Some(booking.id), None,
+        Some(&serde_json::json!({"booking_uuid": booking_uuid, "reason": reason})),
+        None, None, correlation_id,
+    ).await;
+
+    let _ = notification_service::notify_user(
+        pool, booking.booked_by,
+        "Booking Rejected",
+        &format!("Your booking '{}' has been rejected.{}", booking.title,
+            reason.map(|r| format!(" Reason: {}", r)).unwrap_or_default()),
+        "booking", Some("booking"), Some(&booking.uuid),
     ).await;
 
     Ok(())
@@ -290,6 +422,8 @@ pub async fn list_user_bookings(pool: &MySqlPool, user_id: i64) -> Result<Vec<Bo
             start_time: b.start_time.format("%Y-%m-%dT%H:%M:%S").to_string(),
             end_time: b.end_time.format("%Y-%m-%dT%H:%M:%S").to_string(),
             status: b.status, reschedule_count: b.reschedule_count,
+            approved_by: b.approved_by,
+            approved_at: b.approved_at.map(|t| t.format("%Y-%m-%dT%H:%M:%S").to_string()),
             created_at: b.created_at.format("%Y-%m-%dT%H:%M:%S").to_string(),
         });
     }
@@ -313,6 +447,46 @@ pub async fn list_restrictions(pool: &MySqlPool, user_id: i64) -> Result<Vec<Res
         starts_at: r.starts_at.format("%Y-%m-%dT%H:%M:%S").to_string(),
         expires_at: r.expires_at.map(|d| d.format("%Y-%m-%dT%H:%M:%S").to_string()),
         is_active: r.is_active, auto_triggered: r.auto_triggered,
+    }).collect())
+}
+
+pub async fn list_pending_approvals(
+    pool: &MySqlPool, reviewer_role: &str, reviewer_department_id: Option<i64>,
+) -> Result<Vec<BookingResponse>, AppError> {
+    let bookings = if reviewer_role == "admin" {
+        booking_repo::list_all_pending(pool).await?
+    } else {
+        match reviewer_department_id {
+            Some(dept_id) => booking_repo::list_pending_by_department(pool, dept_id).await?,
+            None => vec![],
+        }
+    };
+    let mut result = Vec::new();
+    for b in bookings {
+        let resource = booking_repo::find_resource_by_id(pool, b.resource_id).await?;
+        result.push(BookingResponse {
+            uuid: b.uuid, resource_id: b.resource_id,
+            resource_name: resource.map(|r| r.name),
+            booked_by: b.booked_by, title: b.title, description: b.description,
+            start_time: b.start_time.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            end_time: b.end_time.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            status: b.status, reschedule_count: b.reschedule_count,
+            approved_by: b.approved_by,
+            approved_at: b.approved_at.map(|t| t.format("%Y-%m-%dT%H:%M:%S").to_string()),
+            created_at: b.created_at.format("%Y-%m-%dT%H:%M:%S").to_string(),
+        });
+    }
+    Ok(result)
+}
+
+pub async fn get_booker_breaches(pool: &MySqlPool, booking_uuid: &str) -> Result<Vec<BreachResponse>, AppError> {
+    let booking = booking_repo::find_booking_by_uuid(pool, booking_uuid).await?
+        .ok_or_else(|| AppError::NotFound("Booking not found".to_string()))?;
+    let breaches = booking_repo::list_user_breaches(pool, booking.booked_by).await?;
+    Ok(breaches.into_iter().map(|b| BreachResponse {
+        uuid: b.uuid, user_id: b.user_id, booking_id: b.booking_id,
+        breach_type: b.breach_type, severity: b.severity, description: b.description,
+        status: b.status, created_at: b.created_at.format("%Y-%m-%dT%H:%M:%S").to_string(),
     }).collect())
 }
 

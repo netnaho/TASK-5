@@ -39,8 +39,20 @@ pub async fn list_pending_approvals(pool: &MySqlPool) -> Result<Vec<ApprovalRequ
 
 pub async fn list_pending_for_department(pool: &MySqlPool, dept_id: i64) -> Result<Vec<ApprovalRequest>, sqlx::Error> {
     sqlx::query_as::<_, ApprovalRequest>(
-        "SELECT ar.* FROM approval_requests ar JOIN courses c ON ar.entity_id = c.id AND ar.entity_type = 'course' WHERE c.department_id = ? AND ar.status IN ('pending_step1', 'pending_step2') ORDER BY ar.created_at"
+        "SELECT ar.* FROM approval_requests ar JOIN courses c ON ar.entity_id = c.id AND ar.entity_type IN ('course', 'course_unpublish') WHERE c.department_id = ? AND ar.status IN ('pending_step1', 'pending_step2') ORDER BY ar.created_at"
     ).bind(dept_id).fetch_all(pool).await
+}
+
+/// Pending approvals in a department for the active term, plus unscoped courses (term_id IS NULL).
+pub async fn list_pending_for_department_and_term(pool: &MySqlPool, dept_id: i64, term_id: i64) -> Result<Vec<ApprovalRequest>, sqlx::Error> {
+    sqlx::query_as::<_, ApprovalRequest>(
+        "SELECT ar.* FROM approval_requests ar \
+         JOIN courses c ON ar.entity_id = c.id AND ar.entity_type IN ('course', 'course_unpublish') \
+         WHERE c.department_id = ? \
+           AND (c.term_id = ? OR c.term_id IS NULL) \
+           AND ar.status IN ('pending_step1', 'pending_step2') \
+         ORDER BY ar.created_at"
+    ).bind(dept_id).bind(term_id).fetch_all(pool).await
 }
 
 pub async fn get_steps(pool: &MySqlPool, request_id: i64) -> Result<Vec<ApprovalStep>, sqlx::Error> {
@@ -93,6 +105,6 @@ pub async fn mark_transition_executed(pool: &MySqlPool, id: i64) -> Result<(), s
 
 pub async fn find_active_approval_for_course(pool: &MySqlPool, course_id: i64) -> Result<Option<ApprovalRequest>, sqlx::Error> {
     sqlx::query_as::<_, ApprovalRequest>(
-        "SELECT * FROM approval_requests WHERE entity_type = 'course' AND entity_id = ? AND status IN ('pending_step1', 'pending_step2') LIMIT 1"
+        "SELECT * FROM approval_requests WHERE entity_id = ? AND entity_type IN ('course', 'course_unpublish') AND status IN ('pending_step1', 'pending_step2') LIMIT 1"
     ).bind(course_id).fetch_optional(pool).await
 }

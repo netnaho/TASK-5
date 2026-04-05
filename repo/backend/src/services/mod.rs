@@ -9,3 +9,5 @@ pub mod privacy_service;
 pub mod webhook_service;
 pub mod crypto_service;
 pub mod seed;
+pub mod notification_service;
+pub mod term_service;

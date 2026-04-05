@@ -12,7 +12,9 @@ pub struct ResourceResponse {
     pub open_time: String,
     pub close_time: String,
     pub max_booking_hours: i32,
+    pub requires_approval: bool,
     pub is_active: bool,
+    pub department_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -45,7 +47,14 @@ pub struct BookingResponse {
     pub end_time: String,
     pub status: String,
     pub reschedule_count: i32,
+    pub approved_by: Option<i64>,
+    pub approved_at: Option<String>,
     pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BookingDecisionRequest {
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Validate)]

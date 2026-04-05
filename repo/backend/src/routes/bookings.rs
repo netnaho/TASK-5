@@ -7,6 +7,7 @@ use validator::Validate;
 
 use crate::dto::booking::*;
 use crate::middleware::auth_guard::AuthenticatedUser;
+use crate::middleware::reauth_guard::ReauthReviewerGuard;
 use crate::services::booking_service;
 use crate::utils::errors::ApiError;
 use crate::utils::response::ApiResponse;
@@ -68,7 +69,7 @@ pub async fn cancel_booking(
     user: AuthenticatedUser,
     uuid: String,
 ) -> Result<Json<ApiResponse<String>>, (Status, Json<ApiError>)> {
-    booking_service::cancel_booking(pool.inner(), &uuid, user.claims.user_id, None)
+    booking_service::cancel_booking(pool.inner(), &uuid, user.claims.user_id, &user.claims.role, None)
         .await.map_err(|e| <(Status, Json<ApiError>)>::from(e))?;
     Ok(ApiResponse::ok("Booking cancelled".to_string()))
 }
@@ -93,6 +94,51 @@ pub async fn my_breaches(
     Ok(ApiResponse::ok(breaches))
 }
 
+#[post("/<uuid>/approve", data = "<body>")]
+pub async fn approve_booking(
+    pool: &State<MySqlPool>,
+    reviewer: ReauthReviewerGuard,
+    uuid: String,
+    body: Json<BookingDecisionRequest>,
+) -> Result<Json<ApiResponse<String>>, (Status, Json<ApiError>)> {
+    booking_service::approve_booking(pool.inner(), &uuid, reviewer.claims.user_id, &reviewer.claims.role, reviewer.claims.department_id, None)
+        .await.map_err(|e| <(Status, Json<ApiError>)>::from(e))?;
+    Ok(ApiResponse::ok("Booking approved".to_string()))
+}
+
+#[post("/<uuid>/reject", data = "<body>")]
+pub async fn reject_booking(
+    pool: &State<MySqlPool>,
+    reviewer: ReauthReviewerGuard,
+    uuid: String,
+    body: Json<BookingDecisionRequest>,
+) -> Result<Json<ApiResponse<String>>, (Status, Json<ApiError>)> {
+    booking_service::reject_booking(pool.inner(), &uuid, reviewer.claims.user_id, &reviewer.claims.role, reviewer.claims.department_id, body.reason.as_deref(), None)
+        .await.map_err(|e| <(Status, Json<ApiError>)>::from(e))?;
+    Ok(ApiResponse::ok("Booking rejected".to_string()))
+}
+
+#[get("/pending-approvals")]
+pub async fn pending_approvals(
+    pool: &State<MySqlPool>,
+    reviewer: ReauthReviewerGuard,
+) -> Result<Json<ApiResponse<Vec<BookingResponse>>>, (Status, Json<ApiError>)> {
+    let bookings = booking_service::list_pending_approvals(pool.inner(), &reviewer.claims.role, reviewer.claims.department_id)
+        .await.map_err(|e| <(Status, Json<ApiError>)>::from(e))?;
+    Ok(ApiResponse::ok(bookings))
+}
+
+#[get("/<uuid>/booker-breaches")]
+pub async fn booker_breaches(
+    pool: &State<MySqlPool>,
+    _reviewer: ReauthReviewerGuard,
+    uuid: String,
+) -> Result<Json<ApiResponse<Vec<BreachResponse>>>, (Status, Json<ApiError>)> {
+    let breaches = booking_service::get_booker_breaches(pool.inner(), &uuid)
+        .await.map_err(|e| <(Status, Json<ApiError>)>::from(e))?;
+    Ok(ApiResponse::ok(breaches))
+}
+
 #[get("/restrictions")]
 pub async fn my_restrictions(
     pool: &State<MySqlPool>,
@@ -105,5 +151,6 @@ pub async fn my_restrictions(
 
 pub fn routes() -> Vec<Route> {
     routes![list_resources, resource_availability, create_booking, reschedule_booking,
-            cancel_booking, my_bookings, my_breaches, my_restrictions]
+            cancel_booking, approve_booking, reject_booking, pending_approvals, booker_breaches,
+            my_bookings, my_breaches, my_restrictions]
 }

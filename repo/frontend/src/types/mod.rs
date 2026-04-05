@@ -148,7 +148,9 @@ pub struct ResourceResponse {
     pub open_time: String,
     pub close_time: String,
     pub max_booking_hours: i32,
+    pub requires_approval: Option<bool>,
     pub is_active: bool,
+    pub department_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -171,6 +173,8 @@ pub struct BookingResponse {
     pub end_time: String,
     pub status: String,
     pub reschedule_count: i32,
+    pub approved_by: Option<i64>,
+    pub approved_at: Option<String>,
     pub created_at: String,
 }
 
@@ -230,6 +234,7 @@ pub struct SubscriptionResponse {
     pub event_type: String,
     pub channel: String,
     pub is_active: bool,
+    pub target_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -279,4 +284,21 @@ pub struct ApprovalUuidResponse {
 pub struct CountResponse {
     pub events_created: Option<u32>,
     pub transitions_processed: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NotificationItem {
+    pub uuid: String,
+    pub title: String,
+    pub message: String,
+    pub notification_type: String,
+    pub entity_type: Option<String>,
+    pub entity_uuid: Option<String>,
+    pub is_read: bool,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UnreadCount {
+    pub count: i64,
 }

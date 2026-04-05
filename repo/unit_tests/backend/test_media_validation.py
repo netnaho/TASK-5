@@ -50,5 +50,96 @@ class TestMediaValidation(unittest.TestCase):
         self.assertEqual(len(errors), 2)
 
 
+EXTENSION_MAP = {
+    "application/pdf": [".pdf"],
+    "video/mp4": [".mp4"],
+    "image/png": [".png"],
+}
+
+
+def validate_media_content(file_name, mime_type, checksum, file_path):
+    """Deterministic content validation matching Rust validate_media logic.
+
+    Returns (status, validated, errors) tuple.
+    """
+    errors = []
+    expected = EXTENSION_MAP.get(mime_type, [])
+    if not any(file_name.lower().endswith(ext) for ext in expected):
+        errors.append(f"File extension does not match MIME type {mime_type}")
+    if not checksum:
+        errors.append("Checksum is missing")
+    if not file_path.startswith("/"):
+        errors.append("File path must be absolute")
+    if errors:
+        return "failed", False, errors
+    return "ready", True, []
+
+
+def determine_initial_media_status(validated, validation_error):
+    """Mirror of course_repo::create_media status derivation."""
+    if validation_error:
+        return "failed"
+    elif validated:
+        return "ready"
+    else:
+        return "pending_scan"
+
+
+class TestMediaRegistrationDefaults(unittest.TestCase):
+    def test_registration_defaults_to_pending_scan(self):
+        self.assertEqual(determine_initial_media_status(False, None), "pending_scan")
+
+    def test_validated_true_means_ready(self):
+        self.assertEqual(determine_initial_media_status(True, None), "ready")
+
+    def test_validation_error_means_failed(self):
+        self.assertEqual(determine_initial_media_status(False, "some error"), "failed")
+
+
+class TestMediaContentValidation(unittest.TestCase):
+    def test_valid_pdf_passes(self):
+        status, validated, errors = validate_media_content(
+            "document.pdf", "application/pdf", "abc123", "/uploads/document.pdf")
+        self.assertEqual(status, "ready")
+        self.assertTrue(validated)
+        self.assertEqual(errors, [])
+
+    def test_extension_mismatch_fails(self):
+        status, validated, errors = validate_media_content(
+            "photo.jpg", "application/pdf", "abc123", "/uploads/photo.jpg")
+        self.assertEqual(status, "failed")
+        self.assertFalse(validated)
+        self.assertTrue(any("extension" in e.lower() for e in errors))
+
+    def test_missing_checksum_fails(self):
+        status, validated, errors = validate_media_content(
+            "document.pdf", "application/pdf", None, "/uploads/document.pdf")
+        self.assertEqual(status, "failed")
+        self.assertTrue(any("checksum" in e.lower() for e in errors))
+
+    def test_empty_checksum_fails(self):
+        status, validated, errors = validate_media_content(
+            "document.pdf", "application/pdf", "", "/uploads/document.pdf")
+        self.assertEqual(status, "failed")
+
+    def test_relative_path_fails(self):
+        status, validated, errors = validate_media_content(
+            "document.pdf", "application/pdf", "abc123", "uploads/document.pdf")
+        self.assertEqual(status, "failed")
+        self.assertTrue(any("absolute" in e.lower() for e in errors))
+
+    def test_multiple_errors(self):
+        status, validated, errors = validate_media_content(
+            "photo.jpg", "application/pdf", None, "relative/path.jpg")
+        self.assertEqual(status, "failed")
+        self.assertEqual(len(errors), 3)
+
+    def test_case_insensitive_extension(self):
+        status, validated, errors = validate_media_content(
+            "DOCUMENT.PDF", "application/pdf", "abc123", "/uploads/DOCUMENT.PDF")
+        self.assertEqual(status, "ready")
+        self.assertTrue(validated)
+
+
 if __name__ == "__main__":
     unittest.main()

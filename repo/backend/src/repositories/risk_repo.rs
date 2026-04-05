@@ -97,11 +97,17 @@ pub async fn find_duplicate_postings(pool: &MySqlPool, employer_name: &str, titl
 }
 
 // Subscriptions
-pub async fn create_subscription(pool: &MySqlPool, uuid: &str, user_id: i64, event_type: &str, channel: &str) -> Result<u64, sqlx::Error> {
+pub async fn create_subscription(
+    pool: &MySqlPool, uuid: &str, user_id: i64, event_type: &str, channel: &str,
+    target_url: Option<&str>, signing_secret: Option<&str>,
+) -> Result<u64, sqlx::Error> {
     // Use INSERT IGNORE to handle duplicate subscriptions gracefully
-    let r = sqlx::query("INSERT IGNORE INTO subscriptions (uuid, user_id, event_type, channel) VALUES (?, ?, ?, ?)")
-        .bind(uuid).bind(user_id).bind(event_type).bind(channel)
-        .execute(pool).await?;
+    let r = sqlx::query(
+        "INSERT IGNORE INTO subscriptions (uuid, user_id, event_type, channel, target_url, signing_secret) \
+         VALUES (?, ?, ?, ?, ?, ?)"
+    ).bind(uuid).bind(user_id).bind(event_type).bind(channel)
+    .bind(target_url).bind(signing_secret)
+    .execute(pool).await?;
     Ok(r.last_insert_id())
 }
 

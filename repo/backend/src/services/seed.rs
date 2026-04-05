@@ -7,10 +7,13 @@ use crate::repositories::user_repo;
 pub async fn seed_default_users(pool: &MySqlPool) -> Result<(), Box<dyn std::error::Error>> {
     seed_departments(pool).await?;
     seed_permissions(pool).await?;
+    seed_terms(pool).await?;
 
     let count = user_repo::count_users(pool).await?;
     if count > 0 {
         tracing::info!("Users already exist, skipping user seed");
+        // Still ensure department assignments are set for existing users
+        seed_user_departments(pool).await?;
         return Ok(());
     }
 
@@ -35,6 +38,7 @@ pub async fn seed_default_users(pool: &MySqlPool) -> Result<(), Box<dyn std::err
         }
     }
 
+    seed_user_departments(pool).await?;
     tracing::info!("Default accounts seeded successfully");
     Ok(())
 }
@@ -64,23 +68,61 @@ async fn seed_permissions(pool: &MySqlPool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
+async fn seed_terms(pool: &MySqlPool) -> Result<(), sqlx::Error> {
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM terms").fetch_one(pool).await?;
+    if count.0 > 0 { return Ok(()); }
+
+    tracing::info!("Seeding default terms");
+    let terms = [
+        ("Fall 2024",   "FALL2024",   "2024-08-26", "2024-12-15", false),
+        ("Spring 2025", "SPR2025",    "2025-01-13", "2025-05-10", false),
+        ("Fall 2025",   "FALL2025",   "2025-08-25", "2025-12-14", true),
+    ];
+    for (name, code, start, end, active) in terms {
+        sqlx::query("INSERT INTO terms (uuid, name, code, start_date, end_date, is_active) VALUES (?, ?, ?, ?, ?, ?)")
+            .bind(Uuid::new_v4().to_string()).bind(name).bind(code).bind(start).bind(end).bind(active)
+            .execute(pool).await?;
+    }
+    Ok(())
+}
+
+/// Assign the CS department to the seeded reviewer and author accounts.
+/// Runs unconditionally so it applies to databases that already have users.
+async fn seed_user_departments(pool: &MySqlPool) -> Result<(), sqlx::Error> {
+    let cs_dept: Option<(i64,)> = sqlx::query_as("SELECT id FROM departments WHERE code = 'CS' LIMIT 1")
+        .fetch_optional(pool).await?;
+    if let Some((dept_id,)) = cs_dept {
+        sqlx::query("UPDATE users SET department_id = ? WHERE username IN ('reviewer', 'author') AND department_id IS NULL")
+            .bind(dept_id).execute(pool).await?;
+    }
+    Ok(())
+}
+
 pub async fn seed_resources_and_rules(pool: &MySqlPool) -> Result<(), Box<dyn std::error::Error>> {
     // Seed resources
     let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM resources").fetch_one(pool).await?;
     if count.0 == 0 {
         tracing::info!("Seeding default resources");
         let resources = [
-            ("Conference Room A", "room", "Building A, Floor 2", 20, "Large meeting room with projector", "07:00:00", "22:00:00", 4),
-            ("Conference Room B", "room", "Building A, Floor 3", 10, "Small meeting room", "07:00:00", "22:00:00", 4),
-            ("Main Clubhouse", "studio", "Student Center", 100, "Clubhouse for events", "08:00:00", "23:00:00", 8),
-            ("Parking Lot A - Permit", "equipment", "North Campus", 200, "Daily parking permit", "06:00:00", "23:59:00", 24),
-            ("Computer Lab 101", "lab", "Science Building, Room 101", 30, "Computer lab with 30 workstations", "07:00:00", "21:00:00", 4),
+            ("Conference Room A", "room", "Building A, Floor 2", 20, "Large meeting room with projector", "07:00:00", "22:00:00", 4, false),
+            ("Conference Room B", "room", "Building A, Floor 3", 10, "Small meeting room", "07:00:00", "22:00:00", 4, false),
+            ("Main Clubhouse", "studio", "Student Center", 100, "Clubhouse for events", "08:00:00", "23:00:00", 8, true),
+            ("Parking Lot A - Permit", "equipment", "North Campus", 200, "Daily parking permit", "06:00:00", "23:59:00", 24, false),
+            ("Computer Lab 101", "lab", "Science Building, Room 101", 30, "Computer lab with 30 workstations", "07:00:00", "21:00:00", 4, false),
         ];
-        for (name, rtype, loc, cap, desc, open, close, max_h) in resources {
-            sqlx::query("INSERT INTO resources (uuid, name, resource_type, location, capacity, description, open_time, close_time, max_booking_hours, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)")
-                .bind(Uuid::new_v4().to_string()).bind(name).bind(rtype).bind(loc).bind(cap).bind(desc).bind(open).bind(close).bind(max_h)
+        for (name, rtype, loc, cap, desc, open, close, max_h, req_approval) in resources {
+            sqlx::query("INSERT INTO resources (uuid, name, resource_type, location, capacity, description, open_time, close_time, max_booking_hours, requires_approval, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)")
+                .bind(Uuid::new_v4().to_string()).bind(name).bind(rtype).bind(loc).bind(cap).bind(desc).bind(open).bind(close).bind(max_h).bind(req_approval)
                 .execute(pool).await?;
         }
+    }
+
+    // Assign department to academic resources (Conference Room A, Computer Lab 101 → CS department)
+    let cs_dept: Option<(i64,)> = sqlx::query_as("SELECT id FROM departments WHERE code = 'CS' LIMIT 1")
+        .fetch_optional(pool).await?;
+    if let Some((dept_id,)) = cs_dept {
+        sqlx::query("UPDATE resources SET department_id = ? WHERE name IN ('Conference Room A', 'Computer Lab 101') AND department_id IS NULL")
+            .bind(dept_id).execute(pool).await?;
     }
 
     // Seed risk rules (need admin user to exist first)
@@ -104,5 +146,29 @@ pub async fn seed_resources_and_rules(pool: &MySqlPool) -> Result<(), Box<dyn st
         }
     }
 
+    // Seed HMAC key for development
+    seed_hmac_keys(pool).await?;
+
+    Ok(())
+}
+
+async fn seed_hmac_keys(pool: &MySqlPool) -> Result<(), Box<dyn std::error::Error>> {
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM hmac_keys").fetch_one(pool).await?;
+    if count.0 > 0 { return Ok(()); }
+
+    let admin: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
+        .fetch_optional(pool).await?;
+    if let Some((admin_id,)) = admin {
+        tracing::info!("Seeding development HMAC key");
+        sqlx::query(
+            "INSERT INTO hmac_keys (uuid, key_id, secret_hash, description, owner_user_id, is_active) VALUES (?, ?, ?, ?, ?, TRUE)"
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind("dev-scheduler-key")
+        .bind("campus-learn-hmac-dev-secret-2024")
+        .bind("Development scheduler key for process-scheduled endpoint")
+        .bind(admin_id)
+        .execute(pool).await?;
+    }
     Ok(())
 }

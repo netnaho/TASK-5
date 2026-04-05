@@ -5,7 +5,7 @@ use crate::auth::jwt::generate_token;
 use crate::auth::password::{verify_password, hash_password, validate_password_complexity};
 use crate::config::AppConfig;
 use crate::dto::auth::{LoginResponse, UserInfo};
-use crate::repositories::{user_repo, security_repo};
+use crate::repositories::{user_repo, security_repo, login_rate_limit_repo};
 use crate::utils::errors::AppError;
 
 pub async fn login(
@@ -35,10 +35,33 @@ pub async fn login(
         }
     };
 
+    // Check account lockout
+    if login_rate_limit_repo::is_account_locked(pool, user.id).await.unwrap_or(false) {
+        let _ = security_repo::create_security_event(
+            pool, &Uuid::new_v4().to_string(), "login_locked_out", "warning",
+            Some(user.id), ip_address,
+            &format!("Login attempt on locked account: {}", username),
+            None, correlation_id,
+        ).await;
+        return Err(AppError::Validation("Account temporarily locked due to too many failed attempts. Try again in 15 minutes.".to_string()));
+    }
+
     let valid = verify_password(password, &user.password_hash)
         .map_err(|_| AppError::Internal("Password verification failed".to_string()))?;
 
     if !valid {
+        // Increment failed login counter and lock if threshold reached
+        let fail_count = login_rate_limit_repo::increment_failed_login(pool, user.id).await.unwrap_or(0);
+        if fail_count >= config.login_lockout_threshold {
+            let _ = login_rate_limit_repo::lock_account(pool, user.id, config.login_lockout_minutes).await;
+            let _ = security_repo::create_security_event(
+                pool, &Uuid::new_v4().to_string(), "account_locked", "warning",
+                Some(user.id), ip_address,
+                &format!("Account locked after {} failed attempts: {}", fail_count, username),
+                None, correlation_id,
+            ).await;
+        }
+
         let _ = security_repo::create_security_event(
             pool, &Uuid::new_v4().to_string(), "failed_login", "warning",
             Some(user.id), ip_address,
@@ -48,6 +71,8 @@ pub async fn login(
         return Err(AppError::Auth("Invalid username or password".to_string()));
     }
 
+    // Reset failed login counter on success
+    let _ = login_rate_limit_repo::reset_failed_login(pool, user.id).await;
     let _ = user_repo::update_last_login(pool, user.id).await;
 
     let (token, expires_in) = generate_token(

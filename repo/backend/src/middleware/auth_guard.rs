@@ -1,9 +1,11 @@
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome, Request};
 use rocket::serde::json::Json;
+use sqlx::MySqlPool;
 
 use crate::auth::jwt::{validate_token, Claims};
 use crate::config::AppConfig;
+use crate::repositories::rate_limit_repo;
 use crate::utils::errors::ApiError;
 
 pub struct AuthenticatedUser {
@@ -20,19 +22,37 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
         let token = req.headers().get_one("Authorization")
             .and_then(|header| header.strip_prefix("Bearer "));
 
-        match token {
+        let claims = match token {
             Some(token) => match validate_token(config, token) {
-                Ok(claims) => Outcome::Success(AuthenticatedUser { claims }),
-                Err(_) => Outcome::Error((
+                Ok(claims) => claims,
+                Err(_) => return Outcome::Error((
                     Status::Unauthorized,
                     Json(ApiError::unauthorized("Invalid or expired token")),
                 )),
             },
-            None => Outcome::Error((
+            None => return Outcome::Error((
                 Status::Unauthorized,
                 Json(ApiError::unauthorized("Missing authorization header")),
             )),
+        };
+
+        // Rate limiting: applied to every authenticated request in one place.
+        // All role guards delegate here, so no per-route changes are needed.
+        let pool = req.rocket().state::<MySqlPool>().expect("DB pool not configured");
+        let count = rate_limit_repo::increment_request_count(pool, claims.user_id)
+            .await
+            .unwrap_or(0);
+        if count > config.rate_limit_per_minute as i32 {
+            return Outcome::Error((
+                Status::TooManyRequests,
+                Json(ApiError::new(
+                    Status::TooManyRequests,
+                    "Rate limit exceeded. Try again in a minute.",
+                )),
+            ));
         }
+
+        Outcome::Success(AuthenticatedUser { claims })
     }
 }
 

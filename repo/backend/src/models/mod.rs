@@ -5,3 +5,5 @@ pub mod audit;
 pub mod booking;
 pub mod risk;
 pub mod privacy;
+pub mod term;
+pub mod notification;

@@ -8,3 +8,4 @@ pub mod bookings;
 pub mod risk;
 pub mod privacy;
 pub mod audit;
+pub mod notifications;

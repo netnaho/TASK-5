@@ -88,6 +88,11 @@ impl From<AppError> for (Status, Json<ApiError>) {
     }
 }
 
+#[catch(403)]
+pub fn forbidden(_req: &Request) -> Json<ApiError> {
+    Json(ApiError::forbidden("Insufficient permissions"))
+}
+
 #[catch(404)]
 pub fn not_found(_req: &Request) -> Json<ApiError> {
     Json(ApiError::not_found("Resource not found"))
@@ -101,6 +106,11 @@ pub fn unauthorized(_req: &Request) -> Json<ApiError> {
 #[catch(422)]
 pub fn unprocessable(_req: &Request) -> Json<ApiError> {
     Json(ApiError::bad_request("Invalid request data"))
+}
+
+#[catch(429)]
+pub fn too_many_requests(_req: &Request) -> Json<ApiError> {
+    Json(ApiError::new(Status::TooManyRequests, "Rate limit exceeded. Try again in a minute."))
 }
 
 #[catch(500)]

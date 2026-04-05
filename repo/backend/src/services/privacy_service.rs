@@ -1,6 +1,7 @@
 use sqlx::MySqlPool;
 use uuid::Uuid;
 
+use crate::config::AppConfig;
 use crate::dto::privacy::*;
 use crate::repositories::{privacy_repo, audit_repo};
 use crate::services::crypto_service;
@@ -11,8 +12,25 @@ pub async fn create_data_request(pool: &MySqlPool, user_id: i64, req: &CreateDat
     if !valid_types.contains(&req.request_type.as_str()) {
         return Err(AppError::Validation("Invalid request type. Must be: export, delete, or rectify".to_string()));
     }
+
+    // Rectify requests require field_name and new_value
+    if req.request_type == "rectify" {
+        let field_name = req.field_name.as_deref().unwrap_or("");
+        let new_value = req.new_value.as_deref().unwrap_or("");
+        if field_name.is_empty() || new_value.is_empty() {
+            return Err(AppError::Validation("Rectify requests require field_name and new_value".to_string()));
+        }
+        let allowed_fields = ["email", "full_name"];
+        if !allowed_fields.contains(&field_name) {
+            return Err(AppError::Validation(format!("Rectifiable fields: {}", allowed_fields.join(", "))));
+        }
+    }
+
     let uuid = Uuid::new_v4().to_string();
-    privacy_repo::create_data_request(pool, &uuid, user_id, &req.request_type, req.reason.as_deref()).await?;
+    privacy_repo::create_data_request(
+        pool, &uuid, user_id, &req.request_type, req.reason.as_deref(),
+        req.field_name.as_deref(), req.new_value.as_deref(),
+    ).await?;
 
     let _ = audit_repo::create_audit_log(
         pool, &Uuid::new_v4().to_string(), Some(user_id), "privacy.request_created",
@@ -24,7 +42,10 @@ pub async fn create_data_request(pool: &MySqlPool, user_id: i64, req: &CreateDat
     Ok(uuid)
 }
 
-pub async fn admin_review_request(pool: &MySqlPool, request_uuid: &str, req: &AdminReviewDataRequest, admin_id: i64) -> Result<(), AppError> {
+pub async fn admin_review_request(
+    pool: &MySqlPool, config: &AppConfig, request_uuid: &str,
+    req: &AdminReviewDataRequest, admin_id: i64,
+) -> Result<(), AppError> {
     let data_req = privacy_repo::find_data_request_by_uuid(pool, request_uuid).await?
         .ok_or_else(|| AppError::NotFound("Data request not found".to_string()))?;
 
@@ -35,18 +56,57 @@ pub async fn admin_review_request(pool: &MySqlPool, request_uuid: &str, req: &Ad
     if req.approved {
         privacy_repo::approve_data_request(pool, data_req.id, admin_id, req.admin_notes.as_deref()).await?;
 
-        // Process the request
         match data_req.request_type.as_str() {
             "export" => {
-                let path = format!("/data/exports/user_{}_export_{}.json", data_req.user_id, Uuid::new_v4());
-                privacy_repo::complete_data_request(pool, data_req.id, admin_id, Some(&path)).await?;
+                // Generate real export: gather user data and write to file
+                let export_data = privacy_repo::export_user_data(pool, data_req.user_id).await
+                    .map_err(|e| AppError::Internal(format!("Export data collection failed: {}", e)))?;
+
+                let export_dir = format!("{}/exports", config.media_upload_dir);
+                std::fs::create_dir_all(&export_dir)
+                    .map_err(|e| AppError::Internal(format!("Failed to create export directory: {}", e)))?;
+
+                let file_name = format!("user_{}_export_{}.json", data_req.user_id, Uuid::new_v4());
+                let file_path = format!("{}/{}", export_dir, file_name);
+
+                let json_bytes = serde_json::to_vec_pretty(&export_data)
+                    .map_err(|e| AppError::Internal(format!("Export serialization failed: {}", e)))?;
+                std::fs::write(&file_path, &json_bytes)
+                    .map_err(|e| AppError::Internal(format!("Export file write failed: {}", e)))?;
+
+                privacy_repo::complete_data_request(pool, data_req.id, admin_id, Some(&file_path)).await?;
+
+                tracing::info!(user_id = data_req.user_id, path = %file_path, bytes = json_bytes.len(), "Privacy export generated");
             }
             "delete" => {
-                privacy_repo::delete_user_sensitive_data(pool, data_req.user_id).await?;
+                // Full account anonymization: cancel bookings, delete sessions/notifications, anonymize user
+                privacy_repo::anonymize_user(pool, data_req.user_id).await
+                    .map_err(|e| AppError::Internal(format!("User anonymization failed: {}", e)))?;
                 privacy_repo::complete_data_request(pool, data_req.id, admin_id, None).await?;
+
+                tracing::info!(user_id = data_req.user_id, "User account anonymized for deletion request");
             }
             "rectify" => {
+                // Field-level update with audit trail
+                let field_name = data_req.field_name.as_deref()
+                    .ok_or_else(|| AppError::Internal("Rectify request missing field_name".to_string()))?;
+                let new_value = data_req.new_value.as_deref()
+                    .ok_or_else(|| AppError::Internal("Rectify request missing new_value".to_string()))?;
+
+                let old_value = privacy_repo::rectify_user_field(pool, data_req.user_id, field_name, new_value).await
+                    .map_err(|e| AppError::Internal(format!("Rectification failed: {}", e)))?;
+
+                let _ = audit_repo::create_audit_log(
+                    pool, &Uuid::new_v4().to_string(), Some(admin_id), "privacy.rectify_applied",
+                    "user", Some(data_req.user_id),
+                    Some(&serde_json::json!({"field": field_name, "old_value": old_value})),
+                    Some(&serde_json::json!({"field": field_name, "new_value": new_value})),
+                    None, None, None,
+                ).await;
+
                 privacy_repo::complete_data_request(pool, data_req.id, admin_id, None).await?;
+
+                tracing::info!(user_id = data_req.user_id, field = field_name, "Privacy rectification applied");
             }
             _ => {}
         }
@@ -87,10 +147,17 @@ pub async fn list_user_requests(pool: &MySqlPool, user_id: i64) -> Result<Vec<Da
     }).collect())
 }
 
-pub async fn store_sensitive_field(pool: &MySqlPool, user_id: i64, field_name: &str, value: &str, encryption_key: &str) -> Result<(), AppError> {
+/// Store a sensitive field encrypted with the provided AES-256-GCM key.
+pub async fn store_sensitive_field(
+    pool: &MySqlPool, user_id: i64, field_name: &str, value: &str,
+    encryption_key: &str, key_version: u8,
+) -> Result<(), AppError> {
     let (encrypted, iv) = crypto_service::encrypt(value, encryption_key)
         .map_err(|e| AppError::Internal(format!("Encryption failed: {}", e)))?;
-    privacy_repo::store_encrypted(pool, &Uuid::new_v4().to_string(), user_id, field_name, &encrypted, &iv).await?;
+    privacy_repo::store_encrypted(
+        pool, &Uuid::new_v4().to_string(),
+        user_id, field_name, &encrypted, &iv, key_version,
+    ).await?;
     Ok(())
 }
 

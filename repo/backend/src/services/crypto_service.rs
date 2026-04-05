@@ -3,6 +3,12 @@ use aes_gcm::aead::{Aead, KeyInit};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use rand::RngCore;
 
+/// Validate that `key_hex` is a well-formed AES-256 key (64 hex chars = 32 bytes).
+/// Returns `Ok(())` on success, or an error message suitable for logging/display.
+pub fn validate_key_hex(key_hex: &str) -> Result<(), String> {
+    crate::config::validate_encryption_key_hex(key_hex)
+}
+
 pub fn encrypt(plaintext: &str, key_hex: &str) -> Result<(String, String), String> {
     let key_bytes = hex::decode(key_hex).map_err(|e| format!("Invalid key hex: {}", e))?;
     if key_bytes.len() != 32 {

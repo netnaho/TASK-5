@@ -134,6 +134,10 @@ pub async fn review_approval(uuid: &str, approved: bool, comments: Option<&str>)
     post(&format!("/api/v1/approvals/{}/review", uuid), &serde_json::json!({"approved": approved, "comments": comments})).await
 }
 
+pub async fn submit_for_unpublish(course_uuid: &str, release_notes: &str, effective_date: &str) -> Result<ApiResponse<ApprovalUuidResponse>, String> {
+    post(&format!("/api/v1/approvals/{}/unpublish", course_uuid), &serde_json::json!({"release_notes": release_notes, "effective_date": effective_date})).await
+}
+
 // Bookings
 pub async fn list_resources() -> Result<ApiResponse<Vec<ResourceResponse>>, String> { get("/api/v1/bookings/resources").await }
 pub async fn check_availability(resource_uuid: &str, date: &str) -> Result<ApiResponse<Vec<AvailabilitySlot>>, String> {
@@ -148,6 +152,16 @@ pub async fn reschedule_booking(uuid: &str, new_start: &str, new_end: &str, reas
 pub async fn cancel_booking(uuid: &str) -> Result<ApiResponse<String>, String> { post(&format!("/api/v1/bookings/{}/cancel", uuid), &serde_json::json!({})).await }
 pub async fn my_bookings() -> Result<ApiResponse<Vec<BookingResponse>>, String> { get("/api/v1/bookings/my").await }
 pub async fn my_breaches() -> Result<ApiResponse<Vec<BreachResponse>>, String> { get("/api/v1/bookings/breaches").await }
+pub async fn pending_approvals() -> Result<ApiResponse<Vec<BookingResponse>>, String> { get("/api/v1/bookings/pending-approvals").await }
+pub async fn approve_booking(uuid: &str) -> Result<ApiResponse<String>, String> {
+    post(&format!("/api/v1/bookings/{}/approve", uuid), &serde_json::json!({})).await
+}
+pub async fn reject_booking(uuid: &str, reason: Option<&str>) -> Result<ApiResponse<String>, String> {
+    post(&format!("/api/v1/bookings/{}/reject", uuid), &serde_json::json!({"reason": reason})).await
+}
+pub async fn booker_breaches(booking_uuid: &str) -> Result<ApiResponse<Vec<BreachResponse>>, String> {
+    get(&format!("/api/v1/bookings/{}/booker-breaches", booking_uuid)).await
+}
 pub async fn my_restrictions() -> Result<ApiResponse<Vec<RestrictionResponse>>, String> { get("/api/v1/bookings/restrictions").await }
 
 // Risk
@@ -180,4 +194,18 @@ pub async fn get_masked_fields() -> Result<ApiResponse<Vec<MaskedFieldResponse>>
 pub async fn list_audit_logs(limit: Option<i64>) -> Result<ApiResponse<Vec<AuditLogEntry>>, String> {
     let q = limit.map(|l| format!("?limit={}", l)).unwrap_or_default();
     get(&format!("/api/v1/audit{}", q)).await
+}
+
+// Notifications
+pub async fn get_notifications() -> Result<ApiResponse<Vec<NotificationItem>>, String> {
+    get("/api/v1/notifications/").await
+}
+pub async fn get_unread_count() -> Result<ApiResponse<UnreadCount>, String> {
+    get("/api/v1/notifications/unread-count").await
+}
+pub async fn mark_notification_read(uuid: &str) -> Result<ApiResponse<String>, String> {
+    put(&format!("/api/v1/notifications/{}/read", uuid), &serde_json::json!({})).await
+}
+pub async fn mark_all_notifications_read() -> Result<ApiResponse<String>, String> {
+    put("/api/v1/notifications/read-all", &serde_json::json!({})).await
 }

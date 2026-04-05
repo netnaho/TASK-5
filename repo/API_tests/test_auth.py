@@ -1,10 +1,25 @@
 """API integration tests for authentication endpoints."""
 import os
+import subprocess
 import unittest
 import urllib.request
 import json
 
 BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
+
+
+def _reset_account_lockouts():
+    """Reset failed login counts and IP rate limits so tests start clean."""
+    subprocess.run(
+        ["docker", "exec", "campuslearn-mysql", "mysql", "-ucampus", "-pcampus_pass",
+         "campus_learn", "-e",
+         "UPDATE users SET failed_login_count=0, locked_until=NULL; DELETE FROM ip_rate_limits;"],
+        capture_output=True,
+    )
+
+
+# Reset lockouts once at module load, before any test class runs
+_reset_account_lockouts()
 
 
 def api_post(path: str, data: dict, token: str = None) -> tuple[int, dict]:
@@ -50,6 +65,10 @@ def get_token(username: str, password: str) -> str:
 
 
 class TestAuthLogin(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        _reset_account_lockouts()
+
     def test_login_admin_success(self):
         status, body = api_post("/api/v1/auth/login", {"username": "admin", "password": "Admin@12345678"})
         self.assertEqual(status, 200)
@@ -79,6 +98,7 @@ class TestAuthLogin(unittest.TestCase):
 class TestAuthMe(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        _reset_account_lockouts()
         cls.token = get_token("admin", "Admin@12345678")
 
     def test_me_returns_user_info(self):
@@ -101,6 +121,7 @@ class TestAuthMe(unittest.TestCase):
 class TestReauth(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        _reset_account_lockouts()
         cls.token = get_token("admin", "Admin@12345678")
 
     def test_reauth_success(self):
@@ -114,6 +135,42 @@ class TestReauth(unittest.TestCase):
             self.skipTest("Login failed")
         status, _ = api_post("/api/v1/auth/reauth", {"password": "WrongPassword1!"}, self.token)
         self.assertIn(status, [400, 401])
+
+
+class TestReauthEnforcement(unittest.TestCase):
+    """Sensitive endpoints must require a recent re-authentication."""
+
+    @classmethod
+    def setUpClass(cls):
+        # Fresh login token with no prior reauth call
+        cls.fresh_token = get_token("author", "Author@1234567")
+        # Admin token used for reauth then change-password test
+        cls.admin_token = get_token("admin", "Admin@12345678")
+
+    def test_change_password_without_reauth_returns_403(self):
+        """change-password must be rejected if reauth has not been performed."""
+        if not self.fresh_token:
+            self.skipTest("Login failed")
+        status, _ = api_post("/api/v1/auth/change-password", {
+            "current_password": "Author@1234567",
+            "new_password": "NewAuthor@9999999",
+        }, self.fresh_token)
+        self.assertEqual(status, 403)
+
+    def test_change_password_succeeds_after_reauth(self):
+        """change-password must succeed (or fail on wrong credentials, not 403) after reauth."""
+        if not self.admin_token:
+            self.skipTest("Login failed")
+        # Perform reauth first
+        s, _ = api_post("/api/v1/auth/reauth", {"password": "Admin@12345678"}, self.admin_token)
+        if s != 200:
+            self.skipTest("Reauth failed")
+        # Now attempt change-password with a wrong current password — expect 400/401, NOT 403
+        status, _ = api_post("/api/v1/auth/change-password", {
+            "current_password": "WrongCurrent!",
+            "new_password": "Admin@12345678X",
+        }, self.admin_token)
+        self.assertIn(status, [400, 401])  # Auth fails on wrong password, but NOT forbidden
 
 
 if __name__ == "__main__":

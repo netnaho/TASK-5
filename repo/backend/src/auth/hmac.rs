@@ -22,8 +22,8 @@ pub fn verify_signature(secret: &str, message: &str, signature: &str) -> bool {
         .fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
 }
 
-pub fn build_signing_message(key_id: &str, nonce: &str, timestamp: i64, body: &str) -> String {
-    format!("{}:{}:{}:{}", key_id, nonce, timestamp, body)
+pub fn build_signing_message(key_id: &str, nonce: &str, timestamp: i64, method: &str, path: &str) -> String {
+    format!("{}:{}:{}:{}:{}", key_id, nonce, timestamp, method, path)
 }
 
 pub fn is_timestamp_valid(timestamp: i64, max_age_seconds: i64) -> bool {

@@ -3,11 +3,11 @@ use rocket::serde::json::Json;
 use rocket::Route;
 use rocket::State;
 use sqlx::MySqlPool;
-use sha2::Digest;
 
 use crate::config::AppConfig;
 use crate::dto::privacy::*;
 use crate::middleware::auth_guard::{AuthenticatedUser, AdminGuard};
+use crate::middleware::reauth_guard::ReauthRequired;
 use crate::services::privacy_service;
 use crate::utils::errors::ApiError;
 use crate::utils::response::ApiResponse;
@@ -47,13 +47,19 @@ pub async fn my_requests(
 #[post("/requests/<uuid>/review", data = "<body>")]
 pub async fn review_request(
     pool: &State<MySqlPool>,
+    config: &State<AppConfig>,
     user: AdminGuard,
+    _reauth: ReauthRequired,
     uuid: String,
     body: Json<AdminReviewDataRequest>,
 ) -> Result<Json<ApiResponse<String>>, (Status, Json<ApiError>)> {
-    privacy_service::admin_review_request(pool.inner(), &uuid, &body, user.claims.user_id)
+    privacy_service::admin_review_request(pool.inner(), config.inner(), &uuid, &body, user.claims.user_id)
         .await.map_err(|e| <(Status, Json<ApiError>)>::from(e))?;
-    Ok(ApiResponse::ok(if body.approved { "Request approved and processed".to_string() } else { "Request rejected".to_string() }))
+    Ok(ApiResponse::ok(if body.approved {
+        "Request approved and processed".to_string()
+    } else {
+        "Request rejected".to_string()
+    }))
 }
 
 #[post("/sensitive", data = "<body>")]
@@ -63,11 +69,16 @@ pub async fn store_sensitive(
     user: AuthenticatedUser,
     body: Json<StoreSensitiveDataRequest>,
 ) -> Result<Json<ApiResponse<String>>, (Status, Json<ApiError>)> {
-    let key = &config.jwt_secret; // Use a proper encryption key in production
-    // Pad/hash to 32 bytes for AES-256
-    let key_hex = hex::encode(&sha2::Sha256::digest(key.as_bytes()));
-    privacy_service::store_sensitive_field(pool.inner(), user.claims.user_id, &body.field_name, &body.value, &key_hex)
-        .await.map_err(|e| <(Status, Json<ApiError>)>::from(e))?;
+    // Use the dedicated DATA_ENCRYPTION_KEY — validated as 64 hex chars at startup.
+    // key_version = 2 identifies records encrypted with this dedicated key.
+    privacy_service::store_sensitive_field(
+        pool.inner(),
+        user.claims.user_id,
+        &body.field_name,
+        &body.value,
+        &config.data_encryption_key,
+        2,
+    ).await.map_err(|e| <(Status, Json<ApiError>)>::from(e))?;
     Ok(ApiResponse::ok("Sensitive data stored".to_string()))
 }
 

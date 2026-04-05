@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use crate::dto::risk::*;
 use crate::repositories::{risk_repo, audit_repo, security_repo};
+use crate::services::{notification_service, webhook_service};
 use crate::utils::errors::AppError;
 
 pub async fn list_rules(pool: &MySqlPool) -> Result<Vec<RiskRuleResponse>, AppError> {
@@ -53,6 +54,42 @@ pub async fn update_event(pool: &MySqlPool, event_uuid: &str, req: &UpdateRiskEv
     Ok(())
 }
 
+/// Dispatch notifications for a risk event to all matching subscribers.
+/// Replaces hard-coded notify_role("admin") with subscription-driven delivery.
+async fn dispatch_risk_notifications(
+    pool: &MySqlPool, event_type: &str, title: &str, message: &str,
+    payload: &serde_json::Value,
+) -> Result<(), AppError> {
+    // Get all subscribers for this event type
+    let subscribers = risk_repo::get_subscribers_for_event(pool, event_type).await?;
+
+    for sub in &subscribers {
+        match sub.channel.as_str() {
+            "in_app" => {
+                let _ = notification_service::notify_user(
+                    pool, sub.user_id, title, message,
+                    "risk", Some("risk_event"), None,
+                ).await;
+            }
+            "webhook" => {} // handled below by enqueue_event_webhooks
+            _ => {}
+        }
+    }
+
+    // Enqueue webhook deliveries for all webhook subscribers
+    let _ = webhook_service::enqueue_event_webhooks(pool, event_type, payload).await;
+
+    // If no subscribers exist yet, still notify admins as fallback
+    if subscribers.is_empty() {
+        let _ = notification_service::notify_role(
+            pool, "admin", title, message,
+            "risk", Some("risk_event"), None,
+        ).await;
+    }
+
+    Ok(())
+}
+
 /// Run all due risk rules - called by scheduled job
 pub async fn run_risk_evaluation(pool: &MySqlPool) -> Result<u32, AppError> {
     let rules = risk_repo::get_rules_due_for_run(pool).await?;
@@ -81,18 +118,25 @@ async fn evaluate_posting_frequency(pool: &MySqlPool, rule: &crate::models::risk
     let max_postings = conditions.get("max_postings").and_then(|v| v.as_i64()).unwrap_or(20);
     let window_hours = conditions.get("window_hours").and_then(|v| v.as_i64()).unwrap_or(24);
 
-    // Find employers with high posting frequency
     let rows: Vec<(String, i64)> = sqlx::query_as(
         "SELECT employer_name, COUNT(*) as cnt FROM employer_postings WHERE created_at > DATE_SUB(NOW(), INTERVAL ? HOUR) GROUP BY employer_name HAVING cnt > ?"
     ).bind(window_hours).bind(max_postings).fetch_all(pool).await?;
 
     let mut count = 0;
     for (employer_name, cnt) in rows {
+        let payload = serde_json::json!({"employer": employer_name, "posting_count": cnt, "window_hours": window_hours});
         risk_repo::create_risk_event(
             pool, &Uuid::new_v4().to_string(), rule.id, None,
             Some("employer_posting"), None, (cnt as f64 / max_postings as f64) * 100.0,
-            Some(&serde_json::json!({"employer": employer_name, "posting_count": cnt, "window_hours": window_hours})),
+            Some(&payload),
         ).await?;
+
+        let _ = dispatch_risk_notifications(
+            pool, "risk.posting_frequency",
+            "Risk Alert: Abnormal Posting Frequency",
+            &format!("Employer '{}' posted {} times in {}h.", employer_name, cnt, window_hours),
+            &payload,
+        ).await;
         count += 1;
     }
     Ok(count)
@@ -105,13 +149,13 @@ async fn evaluate_blacklisted_employers(pool: &MySqlPool, rule: &crate::models::
 
     let mut count = 0;
     for (posting_id, employer, title, posted_by) in rows {
+        let payload = serde_json::json!({"employer": employer, "title": title});
         risk_repo::create_risk_event(
             pool, &Uuid::new_v4().to_string(), rule.id, Some(posted_by),
             Some("employer_posting"), Some(posting_id), 100.0,
-            Some(&serde_json::json!({"employer": employer, "title": title})),
+            Some(&payload),
         ).await?;
 
-        // Flag the posting
         sqlx::query("UPDATE employer_postings SET flagged = true WHERE id = ?")
             .bind(posting_id).execute(pool).await?;
 
@@ -119,6 +163,13 @@ async fn evaluate_blacklisted_employers(pool: &MySqlPool, rule: &crate::models::
             pool, &Uuid::new_v4().to_string(), "blacklisted_employer_posting", "critical",
             Some(posted_by), None, &format!("Posting by blacklisted employer: {}", employer),
             None, None,
+        ).await;
+
+        let _ = dispatch_risk_notifications(
+            pool, "risk.blacklisted_employer",
+            "Critical Risk: Blacklisted Employer Detected",
+            &format!("Posting from blacklisted employer '{}' has been flagged.", employer),
+            &payload,
         ).await;
 
         count += 1;
@@ -138,12 +189,21 @@ async fn evaluate_abnormal_compensation(pool: &MySqlPool, rule: &crate::models::
     let mut count = 0;
     for (id, employer, title, comp, posted_by) in rows {
         let score = if comp < min_amount { 80.0 } else { 90.0 };
+        let payload = serde_json::json!({"employer": employer, "title": title, "compensation": comp, "range": format!("{}-{}", min_amount, max_amount)});
         risk_repo::create_risk_event(
             pool, &Uuid::new_v4().to_string(), rule.id, Some(posted_by),
             Some("employer_posting"), Some(id), score,
-            Some(&serde_json::json!({"employer": employer, "title": title, "compensation": comp, "range": format!("{}-{}", min_amount, max_amount)})),
+            Some(&payload),
         ).await?;
         sqlx::query("UPDATE employer_postings SET flagged = true WHERE id = ?").bind(id).execute(pool).await?;
+
+        let _ = dispatch_risk_notifications(
+            pool, "risk.abnormal_compensation",
+            "Risk Alert: Abnormal Compensation",
+            &format!("Adjunct posting by '{}' has unusual compensation: ${:.0}", employer, comp),
+            &payload,
+        ).await;
+
         count += 1;
     }
     Ok(count)
@@ -159,34 +219,61 @@ async fn evaluate_duplicate_postings(pool: &MySqlPool, rule: &crate::models::ris
 
     let mut count = 0;
     for (employer, title, cnt) in rows {
+        let payload = serde_json::json!({"employer": employer, "title": title, "duplicate_count": cnt});
         risk_repo::create_risk_event(
             pool, &Uuid::new_v4().to_string(), rule.id, None,
             Some("employer_posting"), None, 70.0,
-            Some(&serde_json::json!({"employer": employer, "title": title, "duplicate_count": cnt})),
+            Some(&payload),
         ).await?;
+
+        let _ = dispatch_risk_notifications(
+            pool, "risk.duplicate_posting",
+            "Risk Alert: Duplicate Posting Detected",
+            &format!("Duplicate posting detected: '{}' by '{}' ({} copies)", title, employer, cnt),
+            &payload,
+        ).await;
+
         count += 1;
     }
     Ok(count)
 }
 
 // Subscriptions
-pub async fn create_subscription(pool: &MySqlPool, user_id: i64, event_type: &str, channel: Option<&str>) -> Result<SubscriptionResponse, AppError> {
+pub async fn create_subscription(
+    pool: &MySqlPool, user_id: i64, event_type: &str, channel: Option<&str>,
+    target_url: Option<&str>, signing_secret: Option<&str>,
+) -> Result<SubscriptionResponse, AppError> {
     let uuid = Uuid::new_v4().to_string();
     let ch = channel.unwrap_or("in_app");
-    risk_repo::create_subscription(pool, &uuid, user_id, event_type, ch).await?;
-    Ok(SubscriptionResponse { uuid, event_type: event_type.to_string(), channel: ch.to_string(), is_active: true })
+
+    if ch == "webhook" {
+        let url = target_url.ok_or_else(|| {
+            AppError::Validation("target_url is required for webhook subscriptions".to_string())
+        })?;
+        webhook_service::validate_webhook_endpoint(url)
+            .map_err(|e| AppError::Validation(format!("Invalid webhook endpoint: {}", e)))?;
+    }
+
+    risk_repo::create_subscription(pool, &uuid, user_id, event_type, ch, target_url, signing_secret).await?;
+    Ok(SubscriptionResponse {
+        uuid,
+        event_type: event_type.to_string(),
+        channel: ch.to_string(),
+        is_active: true,
+        target_url: target_url.map(|u| u.to_string()),
+    })
 }
 
 pub async fn list_subscriptions(pool: &MySqlPool, user_id: i64) -> Result<Vec<SubscriptionResponse>, AppError> {
     let subs = risk_repo::list_subscriptions(pool, user_id).await?;
     Ok(subs.into_iter().map(|s| SubscriptionResponse {
         uuid: s.uuid, event_type: s.event_type, channel: s.channel, is_active: s.is_active,
+        target_url: s.target_url,
     }).collect())
 }
 
 // Postings
 pub async fn create_posting(pool: &MySqlPool, req: &CreatePostingRequest, user_id: i64) -> Result<String, AppError> {
-    // Check blacklist
     if risk_repo::is_employer_blacklisted(pool, &req.employer_name).await? {
         let _ = security_repo::create_security_event(
             pool, &Uuid::new_v4().to_string(), "blacklisted_employer_posting", "critical",

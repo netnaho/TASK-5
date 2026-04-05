@@ -51,3 +51,56 @@ impl<'r> FromRequest<'r> for ReauthRequired {
         Outcome::Success(ReauthRequired { claims: user.claims })
     }
 }
+
+/// Guard that requires recent re-auth AND admin role.
+pub struct ReauthAdminGuard {
+    pub claims: crate::auth::jwt::Claims,
+}
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for ReauthAdminGuard {
+    type Error = Json<ApiError>;
+
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        let reauth = match ReauthRequired::from_request(req).await {
+            Outcome::Success(r) => r,
+            Outcome::Error(e) => return Outcome::Error(e),
+            Outcome::Forward(f) => return Outcome::Forward(f),
+        };
+
+        if reauth.claims.role == "admin" {
+            Outcome::Success(Self { claims: reauth.claims })
+        } else {
+            Outcome::Error((
+                Status::Forbidden,
+                Json(ApiError::forbidden("Admin role required")),
+            ))
+        }
+    }
+}
+
+/// Guard that requires recent re-auth AND reviewer role (admin or dept_reviewer).
+pub struct ReauthReviewerGuard {
+    pub claims: crate::auth::jwt::Claims,
+}
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for ReauthReviewerGuard {
+    type Error = Json<ApiError>;
+
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        let reauth = match ReauthRequired::from_request(req).await {
+            Outcome::Success(r) => r,
+            Outcome::Error(e) => return Outcome::Error(e),
+            Outcome::Forward(f) => return Outcome::Forward(f),
+        };
+
+        match reauth.claims.role.as_str() {
+            "admin" | "dept_reviewer" => Outcome::Success(Self { claims: reauth.claims }),
+            _ => Outcome::Error((
+                Status::Forbidden,
+                Json(ApiError::forbidden("Only reviewers and admins can perform this action")),
+            )),
+        }
+    }
+}

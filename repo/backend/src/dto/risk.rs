@@ -39,6 +39,10 @@ pub struct CreateSubscriptionRequest {
     #[validate(length(min = 1))]
     pub event_type: String,
     pub channel: Option<String>,
+    /// Required when channel = "webhook". Must be an approved on-prem URL.
+    pub target_url: Option<String>,
+    /// Optional HMAC-SHA256 signing secret. When absent no signature header is sent.
+    pub signing_secret: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -47,6 +51,8 @@ pub struct SubscriptionResponse {
     pub event_type: String,
     pub channel: String,
     pub is_active: bool,
+    /// Present only for webhook subscriptions; signing_secret is never returned.
+    pub target_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Validate)]

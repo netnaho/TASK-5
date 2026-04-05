@@ -77,6 +77,19 @@ pub async fn update_last_reauth(pool: &MySqlPool, user_id: i64) -> Result<(), sq
     Ok(())
 }
 
+pub async fn find_users_by_role(pool: &MySqlPool, role: &str) -> Result<Vec<User>, sqlx::Error> {
+    sqlx::query_as::<_, User>("SELECT * FROM users WHERE role = ? AND is_active = true")
+        .bind(role)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn find_users_by_role_and_department(pool: &MySqlPool, role: &str, department_id: i64) -> Result<Vec<User>, sqlx::Error> {
+    sqlx::query_as::<_, User>("SELECT * FROM users WHERE role = ? AND department_id = ? AND is_active = true")
+        .bind(role).bind(department_id)
+        .fetch_all(pool).await
+}
+
 pub async fn list_by_department(pool: &MySqlPool, department_id: i64) -> Result<Vec<User>, sqlx::Error> {
     sqlx::query_as::<_, User>("SELECT * FROM users WHERE department_id = ? AND is_active = true ORDER BY full_name")
         .bind(department_id)

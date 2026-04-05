@@ -16,6 +16,8 @@ pub struct PersonalDataRequest {
     pub approved_at: Option<NaiveDateTime>,
     pub admin_notes: Option<String>,
     pub result_file_path: Option<String>,
+    pub field_name: Option<String>,
+    pub new_value: Option<String>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -28,6 +30,8 @@ pub struct SensitiveDataVault {
     pub field_name: String,
     pub encrypted_value: String,
     pub iv: String,
+    /// 1 = legacy (SHA256 of jwt_secret), 2 = dedicated DATA_ENCRYPTION_KEY
+    pub key_version: u8,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }

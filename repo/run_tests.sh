@@ -49,7 +49,7 @@ API_BASE_URL="${API_BASE_URL:-http://localhost:8000}"
 export API_BASE_URL
 
 # Check if backend is reachable
-if ! curl -sf "$API_BASE_URL/health" > /dev/null 2>&1; then
+if ! curl -sfk "$API_BASE_URL/health" > /dev/null 2>&1; then
     echo "WARNING: Backend not reachable at $API_BASE_URL"
     echo "SKIP: API tests skipped (start services with 'docker compose up' first)"
     API_PASS=0
