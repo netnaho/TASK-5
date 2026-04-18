@@ -99,8 +99,36 @@ docker build \
 # -----------------------------------------------------------------------------
 # 2. Bring up stack (mysql, backend, frontend) and wait for health
 # -----------------------------------------------------------------------------
+# docker-compose.yml sets `container_name: campuslearn-<svc>`, which are
+# *globally* unique. If a previous aborted run, different branch, or
+# foreign compose project left containers with those names behind, the
+# `docker compose up` below fails with "name already in use". Preemptively
+# remove any container holding one of our names that is NOT part of this
+# compose project.
+_preclean_foreign_containers() {
+    local name cid project
+    for name in campuslearn-mysql campuslearn-backend campuslearn-frontend; do
+        cid=$(docker ps -aq --filter "name=^${name}$" 2>/dev/null || true)
+        if [[ -n "${cid:-}" ]]; then
+            project=$(docker inspect \
+                --format '{{ index .Config.Labels "com.docker.compose.project" }}' \
+                "$cid" 2>/dev/null || echo "")
+            if [[ "$project" != "$COMPOSE_PROJECT_NAME" ]]; then
+                log "Removing foreign container '$name' (project='${project:-none}')"
+                docker rm -f "$cid" >/dev/null 2>&1 || true
+            fi
+        fi
+    done
+}
+_preclean_foreign_containers
+
 log "Starting docker compose services …"
-docker compose -p "$COMPOSE_PROJECT_NAME" up -d --wait --wait-timeout 240
+if ! docker compose -p "$COMPOSE_PROJECT_NAME" up -d --wait --wait-timeout 240; then
+    warn "compose up failed — retrying once after a forced teardown."
+    docker compose -p "$COMPOSE_PROJECT_NAME" down --remove-orphans >/dev/null 2>&1 || true
+    _preclean_foreign_containers
+    docker compose -p "$COMPOSE_PROJECT_NAME" up -d --wait --wait-timeout 240
+fi
 
 NETWORK_NAME="${COMPOSE_PROJECT_NAME}_campuslearn"
 if ! docker network inspect "$NETWORK_NAME" >/dev/null 2>&1; then
