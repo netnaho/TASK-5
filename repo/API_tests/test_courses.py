@@ -80,15 +80,23 @@ class TestCourseCRUD(unittest.TestCase):
             "title": "Updated Test Course",
         }, self.author_token)
         self.assertEqual(status, 200)
+        self.assertTrue(body.get("success"))
+        # Verify update was persisted by reading back
+        status, body = api_request("GET", f"/api/v1/courses/{self.course_uuid}", token=self.author_token)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"]["title"], "Updated Test Course")
+        self.assertEqual(body["data"]["status"], "draft")
 
     def test_05_student_cannot_create_course(self):
         if not self.student_token:
             self.skipTest("Student login failed")
-        status, _ = api_request("POST", "/api/v1/courses", {
+        status, body = api_request("POST", "/api/v1/courses", {
             "title": "Forbidden Course",
             "code": "FAIL-001",
         }, self.student_token)
         self.assertEqual(status, 403)
+        self.assertEqual(body.get("status"), 403)
+        self.assertIn("error", body)
 
     def test_06_create_section(self):
         if not self.course_uuid or not self.author_token:
@@ -98,7 +106,14 @@ class TestCourseCRUD(unittest.TestCase):
             "sort_order": 1,
         }, self.author_token)
         self.assertEqual(status, 200)
+        self.assertTrue(body.get("success"))
+        self.assertIn("uuid", body["data"])
+        # Verify persisted title + default is_published=false by reading back sections
         self.__class__.section_uuid = body["data"]["uuid"]
+        s2, b2 = api_request("GET", f"/api/v1/courses/{self.course_uuid}/sections", token=self.author_token)
+        self.assertEqual(s2, 200)
+        titles = [s["title"] for s in b2["data"]]
+        self.assertIn("Section 1", titles)
 
     def test_07_create_lesson(self):
         if not hasattr(self, 'section_uuid') or not self.section_uuid:
@@ -109,6 +124,15 @@ class TestCourseCRUD(unittest.TestCase):
             "content_body": "Hello world",
         }, self.author_token)
         self.assertEqual(status, 200)
+        self.assertTrue(body.get("success"))
+        self.assertIn("uuid", body["data"])
+        # Verify persisted lesson appears in sections list with correct fields
+        s2, b2 = api_request("GET", f"/api/v1/courses/{self.course_uuid}/sections", token=self.author_token)
+        self.assertEqual(s2, 200)
+        lessons = [l for sec in b2["data"] for l in sec.get("lessons", [])]
+        matches = [l for l in lessons if l["title"] == "Lesson 1"]
+        self.assertTrue(matches, "Created lesson should appear in sections listing")
+        self.assertEqual(matches[0]["content_type"], "text")
 
     def test_08_list_sections(self):
         if not self.course_uuid or not self.author_token:

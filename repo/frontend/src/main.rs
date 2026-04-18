@@ -5,6 +5,8 @@ mod forms;
 mod hooks;
 mod layouts;
 mod pages;
+#[allow(dead_code)]
+mod role_nav;
 mod theme;
 mod types;
 

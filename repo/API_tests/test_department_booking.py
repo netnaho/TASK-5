@@ -98,6 +98,8 @@ class TestReviewerPendingApprovals(unittest.TestCase):
         s, b = api_request("GET", "/api/v1/bookings/pending-approvals", token=faculty_token)
         # Faculty is neither admin nor dept_reviewer, so should get 403
         self.assertEqual(s, 403)
+        self.assertEqual(b.get("status"), 403)
+        self.assertIn("error", b)
 
 
 class TestBookerBreaches(unittest.TestCase):

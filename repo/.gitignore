@@ -12,3 +12,5 @@ mysql_data/
 .claude/
 .tmp/
 CLAUDE.md
+.cargo-cache-frontend-tests
+.cargo-target-frontend-tests

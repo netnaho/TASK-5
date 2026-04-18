@@ -1,259 +1,263 @@
 # Test Coverage Audit
 
 ## Scope and Method
-- Audit mode: static inspection only (no test execution, no app runtime).
-- Project type declaration at README top: **missing**.
-- Inferred project type (strict): **fullstack** (evidence: [repo/README.md:5], [repo/frontend/src/main.rs], [repo/backend/src/main.rs]).
+- Audit mode: static inspection only (no execution of tests, scripts, containers, server, or build tools).
+- Project type declaration found in README: **fullstack** ([repo/README.md:3]).
+- Inferred type from code structure also matches fullstack ([repo/frontend/src/main.rs], [repo/backend/src/main.rs]).
 
 ## Backend Endpoint Inventory
-Resolved from backend route mounts and route macros.
+Resolved from route mounts in [repo/backend/src/main.rs:112-123] and route macros in `repo/backend/src/routes/*.rs`.
 
-- `GET /health` ([repo/backend/src/main.rs:96], [repo/backend/src/routes/health.rs:13])
-- `GET /api/v1/info` ([repo/backend/src/main.rs:97], [repo/backend/src/routes/info.rs:15])
+- `GET /health`
+- `GET /api/v1/info`
 
-- `POST /api/v1/auth/login` ([repo/backend/src/main.rs:98], [repo/backend/src/routes/auth.rs:18])
-- `POST /api/v1/auth/change-password` ([repo/backend/src/routes/auth.rs:55])
-- `POST /api/v1/auth/reauth` ([repo/backend/src/routes/auth.rs:75])
-- `GET /api/v1/auth/me` ([repo/backend/src/routes/auth.rs:88])
-- `POST /api/v1/auth/hmac-keys` ([repo/backend/src/routes/auth.rs:125])
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/change-password`
+- `POST /api/v1/auth/reauth`
+- `GET /api/v1/auth/me`
+- `POST /api/v1/auth/hmac-keys`
 
-- `POST /api/v1/courses` ([repo/backend/src/main.rs:99], [repo/backend/src/routes/courses.rs:17])
-- `GET /api/v1/courses` ([repo/backend/src/routes/courses.rs:37])
-- `GET /api/v1/courses/:uuid` ([repo/backend/src/routes/courses.rs:49])
-- `PUT /api/v1/courses/:uuid` ([repo/backend/src/routes/courses.rs:61])
-- `DELETE /api/v1/courses/:uuid` ([repo/backend/src/routes/courses.rs:73])
-- `POST /api/v1/courses/:course_uuid/sections` ([repo/backend/src/routes/courses.rs:85])
-- `GET /api/v1/courses/:course_uuid/sections` ([repo/backend/src/routes/courses.rs:104])
-- `PUT /api/v1/courses/sections/:uuid` ([repo/backend/src/routes/courses.rs:116])
-- `DELETE /api/v1/courses/sections/:uuid` ([repo/backend/src/routes/courses.rs:128])
-- `POST /api/v1/courses/sections/:section_uuid/lessons` ([repo/backend/src/routes/courses.rs:140])
-- `PUT /api/v1/courses/lessons/:uuid` ([repo/backend/src/routes/courses.rs:159])
-- `DELETE /api/v1/courses/lessons/:uuid` ([repo/backend/src/routes/courses.rs:171])
-- `POST /api/v1/courses/media/upload` ([repo/backend/src/routes/courses.rs:191])
-- `POST /api/v1/courses/media` ([repo/backend/src/routes/courses.rs:237])
-- `POST /api/v1/courses/media/:uuid/validate` ([repo/backend/src/routes/courses.rs:254])
-- `GET /api/v1/courses/:course_uuid/versions` ([repo/backend/src/routes/courses.rs:266])
+- `POST /api/v1/courses`
+- `GET /api/v1/courses`
+- `GET /api/v1/courses/:uuid`
+- `PUT /api/v1/courses/:uuid`
+- `DELETE /api/v1/courses/:uuid`
+- `POST /api/v1/courses/:course_uuid/sections`
+- `GET /api/v1/courses/:course_uuid/sections`
+- `PUT /api/v1/courses/sections/:uuid`
+- `DELETE /api/v1/courses/sections/:uuid`
+- `POST /api/v1/courses/sections/:section_uuid/lessons`
+- `PUT /api/v1/courses/lessons/:uuid`
+- `DELETE /api/v1/courses/lessons/:uuid`
+- `POST /api/v1/courses/media/upload`
+- `POST /api/v1/courses/media`
+- `POST /api/v1/courses/media/:uuid/validate`
+- `GET /api/v1/courses/:course_uuid/versions`
 
-- `POST /api/v1/approvals/:course_uuid/submit` ([repo/backend/src/main.rs:100], [repo/backend/src/routes/approvals.rs:17])
-- `POST /api/v1/approvals/:approval_uuid/review` ([repo/backend/src/routes/approvals.rs:39])
-- `GET /api/v1/approvals/:uuid` ([repo/backend/src/routes/approvals.rs:56])
-- `GET /api/v1/approvals/queue` ([repo/backend/src/routes/approvals.rs:68])
-- `POST /api/v1/approvals/process-scheduled` ([repo/backend/src/routes/approvals.rs:78])
-- `POST /api/v1/approvals/:course_uuid/unpublish` ([repo/backend/src/routes/approvals.rs:88])
+- `POST /api/v1/approvals/:course_uuid/submit`
+- `POST /api/v1/approvals/:approval_uuid/review`
+- `GET /api/v1/approvals/:uuid`
+- `GET /api/v1/approvals/queue`
+- `POST /api/v1/approvals/process-scheduled`
+- `POST /api/v1/approvals/:course_uuid/unpublish`
 
-- `GET /api/v1/audit` ([repo/backend/src/main.rs:101], [repo/backend/src/routes/audit.rs:12])
+- `GET /api/v1/audit`
 
-- `POST /api/v1/tags` ([repo/backend/src/main.rs:102], [repo/backend/src/routes/tags.rs:14])
-- `GET /api/v1/tags` ([repo/backend/src/routes/tags.rs:31])
+- `POST /api/v1/tags`
+- `GET /api/v1/tags`
 
-- `GET /api/v1/bookings/resources` ([repo/backend/src/main.rs:103], [repo/backend/src/routes/bookings.rs:15])
-- `GET /api/v1/bookings/resources/:uuid/availability` ([repo/backend/src/routes/bookings.rs:25])
-- `POST /api/v1/bookings` ([repo/backend/src/routes/bookings.rs:37])
-- `POST /api/v1/bookings/:uuid/reschedule` ([repo/backend/src/routes/bookings.rs:54])
-- `POST /api/v1/bookings/:uuid/cancel` ([repo/backend/src/routes/bookings.rs:66])
-- `GET /api/v1/bookings/my` ([repo/backend/src/routes/bookings.rs:77])
-- `GET /api/v1/bookings/breaches` ([repo/backend/src/routes/bookings.rs:87])
-- `POST /api/v1/bookings/:uuid/approve` ([repo/backend/src/routes/bookings.rs:97])
-- `POST /api/v1/bookings/:uuid/reject` ([repo/backend/src/routes/bookings.rs:109])
-- `GET /api/v1/bookings/pending-approvals` ([repo/backend/src/routes/bookings.rs:121])
-- `GET /api/v1/bookings/:uuid/booker-breaches` ([repo/backend/src/routes/bookings.rs:131])
-- `GET /api/v1/bookings/restrictions` ([repo/backend/src/routes/bookings.rs:142])
+- `GET /api/v1/bookings/resources`
+- `GET /api/v1/bookings/resources/:uuid/availability`
+- `POST /api/v1/bookings`
+- `POST /api/v1/bookings/:uuid/reschedule`
+- `POST /api/v1/bookings/:uuid/cancel`
+- `GET /api/v1/bookings/my`
+- `GET /api/v1/bookings/breaches`
+- `POST /api/v1/bookings/:uuid/approve`
+- `POST /api/v1/bookings/:uuid/reject`
+- `GET /api/v1/bookings/pending-approvals`
+- `GET /api/v1/bookings/:uuid/booker-breaches`
+- `GET /api/v1/bookings/restrictions`
 
-- `GET /api/v1/risk/rules` ([repo/backend/src/main.rs:104], [repo/backend/src/routes/risk.rs:15])
-- `GET /api/v1/risk/events` ([repo/backend/src/routes/risk.rs:25])
-- `PUT /api/v1/risk/events/:uuid` ([repo/backend/src/routes/risk.rs:36])
-- `POST /api/v1/risk/evaluate` ([repo/backend/src/routes/risk.rs:49])
-- `POST /api/v1/risk/subscriptions` ([repo/backend/src/routes/risk.rs:60])
-- `GET /api/v1/risk/subscriptions` ([repo/backend/src/routes/risk.rs:81])
-- `POST /api/v1/risk/postings` ([repo/backend/src/routes/risk.rs:91])
-- `POST /api/v1/risk/blacklist` ([repo/backend/src/routes/risk.rs:108])
+- `GET /api/v1/risk/rules`
+- `GET /api/v1/risk/events`
+- `PUT /api/v1/risk/events/:uuid`
+- `POST /api/v1/risk/evaluate`
+- `POST /api/v1/risk/subscriptions`
+- `GET /api/v1/risk/subscriptions`
+- `POST /api/v1/risk/postings`
+- `POST /api/v1/risk/blacklist`
 
-- `POST /api/v1/privacy/requests` ([repo/backend/src/main.rs:105], [repo/backend/src/routes/privacy.rs:15])
-- `GET /api/v1/privacy/requests` ([repo/backend/src/routes/privacy.rs:26])
-- `GET /api/v1/privacy/requests/my` ([repo/backend/src/routes/privacy.rs:37])
-- `POST /api/v1/privacy/requests/:uuid/review` ([repo/backend/src/routes/privacy.rs:47])
-- `POST /api/v1/privacy/sensitive` ([repo/backend/src/routes/privacy.rs:65])
-- `GET /api/v1/privacy/sensitive` ([repo/backend/src/routes/privacy.rs:85])
+- `POST /api/v1/privacy/requests`
+- `GET /api/v1/privacy/requests`
+- `GET /api/v1/privacy/requests/my`
+- `POST /api/v1/privacy/requests/:uuid/review`
+- `POST /api/v1/privacy/sensitive`
+- `GET /api/v1/privacy/sensitive`
 
-- `GET /api/v1/terms` ([repo/backend/src/main.rs:106], [repo/backend/src/routes/terms.rs:25])
-- `GET /api/v1/terms/active` ([repo/backend/src/routes/terms.rs:35])
-- `POST /api/v1/terms/:term_uuid/accept` ([repo/backend/src/routes/terms.rs:45])
-- `GET /api/v1/terms/my-acceptances` ([repo/backend/src/routes/terms.rs:56])
+- `GET /api/v1/terms`
+- `GET /api/v1/terms/active`
+- `POST /api/v1/terms/:term_uuid/accept`
+- `GET /api/v1/terms/my-acceptances`
 
-- `GET /api/v1/notifications` ([repo/backend/src/main.rs:107], [repo/backend/src/routes/notifications.rs:13])
-- `GET /api/v1/notifications/unread-count` ([repo/backend/src/routes/notifications.rs:36])
-- `PUT /api/v1/notifications/:uuid/read` ([repo/backend/src/routes/notifications.rs:48])
-- `PUT /api/v1/notifications/read-all` ([repo/backend/src/routes/notifications.rs:61])
+- `GET /api/v1/notifications`
+- `GET /api/v1/notifications/unread-count`
+- `PUT /api/v1/notifications/:uuid/read`
+- `PUT /api/v1/notifications/read-all`
 
-**Total endpoints:** 66
+**Total endpoints: 66**
 
 ## API Test Mapping Table
 Legend:
 - Test type = `true no-mock HTTP` / `HTTP with mocking` / `unit-only or indirect`
-- Coverage decision based on exact method + normalized path seen in API test calls.
+- Coverage is based on exact method + normalized path presence in `repo/API_tests` request calls.
 
 | Endpoint | Covered | Test type | Test files | Evidence |
 |---|---|---|---|---|
-| GET /health | yes | true no-mock HTTP | `test_health.py`, `test_envelope.py`, `test_rate_limit.py` | [repo/API_tests/test_health.py:26], [repo/API_tests/test_envelope.py:37], [repo/API_tests/test_rate_limit.py:114] |
-| GET /api/v1/info | yes | true no-mock HTTP | `test_health.py`, `test_envelope.py`, `test_security_regression.py` | [repo/API_tests/test_health.py:40], [repo/API_tests/test_envelope.py:46], [repo/API_tests/test_security_regression.py:947] |
-| POST /api/v1/auth/login | yes | true no-mock HTTP | many | [repo/API_tests/test_auth.py:73] |
-| POST /api/v1/auth/change-password | yes | true no-mock HTTP | `test_auth.py`, `test_security_regression.py` | [repo/API_tests/test_auth.py:154], [repo/API_tests/test_security_regression.py:710] |
-| POST /api/v1/auth/reauth | yes | true no-mock HTTP | many | [repo/API_tests/test_auth.py:130] |
-| GET /api/v1/auth/me | yes | true no-mock HTTP | `test_auth.py`, `test_envelope.py`, `test_rate_limit.py` | [repo/API_tests/test_auth.py:107], [repo/API_tests/test_rate_limit.py:56] |
-| POST /api/v1/auth/hmac-keys | yes | true no-mock HTTP | `test_hmac_flow.py` | [repo/API_tests/test_hmac_flow.py:61] |
-| POST /api/v1/courses | yes | true no-mock HTTP | `test_courses.py`, `test_approvals.py`, `test_scope_isolation.py` | [repo/API_tests/test_courses.py:52] |
-| GET /api/v1/courses | yes | true no-mock HTTP | `test_courses.py`, `test_scope_isolation.py`, `test_security_regression.py` | [repo/API_tests/test_courses.py:64] |
-| GET /api/v1/courses/:uuid | yes | true no-mock HTTP | `test_courses.py`, `test_approvals.py`, `test_scope_isolation.py` | [repo/API_tests/test_courses.py:71] |
-| PUT /api/v1/courses/:uuid | yes | true no-mock HTTP | `test_courses.py` | [repo/API_tests/test_courses.py:79] |
-| DELETE /api/v1/courses/:uuid | yes | true no-mock HTTP | `test_courses.py` | [repo/API_tests/test_courses.py:128] |
-| POST /api/v1/courses/:course_uuid/sections | yes | true no-mock HTTP | `test_courses.py`, `test_security_regression.py` | [repo/API_tests/test_courses.py:96] |
-| GET /api/v1/courses/:course_uuid/sections | yes | true no-mock HTTP | `test_courses.py`, `test_scope_isolation.py` | [repo/API_tests/test_courses.py:116] |
-| PUT /api/v1/courses/sections/:uuid | yes | true no-mock HTTP | `test_courses.py` | [repo/API_tests/test_courses.py:234] |
-| DELETE /api/v1/courses/sections/:uuid | yes | true no-mock HTTP | `test_courses.py` | [repo/API_tests/test_courses.py:241] |
-| POST /api/v1/courses/sections/:section_uuid/lessons | yes | true no-mock HTTP | `test_courses.py` | [repo/API_tests/test_courses.py:106] |
-| PUT /api/v1/courses/lessons/:uuid | yes | true no-mock HTTP | `test_courses.py` | [repo/API_tests/test_courses.py:255] |
-| DELETE /api/v1/courses/lessons/:uuid | yes | true no-mock HTTP | `test_courses.py` | [repo/API_tests/test_courses.py:262] |
-| POST /api/v1/courses/media/upload | yes | true no-mock HTTP | `test_courses.py` | [repo/API_tests/test_courses.py:379] |
-| POST /api/v1/courses/media | yes | true no-mock HTTP | `test_courses.py` | [repo/API_tests/test_courses.py:419] |
-| POST /api/v1/courses/media/:uuid/validate | yes | true no-mock HTTP | `test_courses.py` | [repo/API_tests/test_courses.py:410] |
-| GET /api/v1/courses/:course_uuid/versions | yes | true no-mock HTTP | `test_courses.py`, `test_approvals.py`, `test_security_regression.py` | [repo/API_tests/test_courses.py:310] |
-| POST /api/v1/approvals/:course_uuid/submit | yes | true no-mock HTTP | `test_approvals.py`, `test_courses.py`, `test_scope_isolation.py` | [repo/API_tests/test_approvals.py:89] |
-| POST /api/v1/approvals/:approval_uuid/review | yes | true no-mock HTTP | `test_approvals.py`, `test_reauth_enforcement.py` | [repo/API_tests/test_approvals.py:108] |
-| GET /api/v1/approvals/:uuid | yes | true no-mock HTTP | `test_approvals.py`, `test_security_regression.py` | [repo/API_tests/test_approvals.py:99] |
-| GET /api/v1/approvals/queue | yes | true no-mock HTTP | `test_approvals.py`, `test_scope_isolation.py` | [repo/API_tests/test_approvals.py:142] |
-| POST /api/v1/approvals/process-scheduled | no | unit-only or indirect | none | no API test call found in `repo/API_tests` |
-| POST /api/v1/approvals/:course_uuid/unpublish | yes | true no-mock HTTP | `test_approvals.py` | [repo/API_tests/test_approvals.py:334] |
-| GET /api/v1/audit | yes | true no-mock HTTP | `test_audit.py`, `test_envelope.py`, `test_reauth_enforcement.py` | [repo/API_tests/test_audit.py:52], [repo/API_tests/test_audit.py:65] |
-| POST /api/v1/tags | no | unit-only or indirect | none | no API test call found in `repo/API_tests` |
-| GET /api/v1/tags | no | unit-only or indirect | none | no API test call found in `repo/API_tests` |
-| GET /api/v1/bookings/resources | yes | true no-mock HTTP | `test_bookings.py`, `test_booking_approval.py`, `test_department_booking.py` | [repo/API_tests/test_bookings.py:76] |
-| GET /api/v1/bookings/resources/:uuid/availability | yes | true no-mock HTTP | `test_bookings.py` | [repo/API_tests/test_bookings.py:88] |
-| POST /api/v1/bookings | yes | true no-mock HTTP | `test_bookings.py`, `test_booking_approval.py`, `test_terms_acceptance.py` | [repo/API_tests/test_bookings.py:98] |
-| POST /api/v1/bookings/:uuid/reschedule | yes | true no-mock HTTP | `test_bookings.py` | [repo/API_tests/test_bookings.py:131] |
-| POST /api/v1/bookings/:uuid/cancel | yes | true no-mock HTTP | `test_bookings.py`, `test_booking_approval.py` | [repo/API_tests/test_bookings.py:142] |
-| GET /api/v1/bookings/my | yes | true no-mock HTTP | `test_bookings.py` | [repo/API_tests/test_bookings.py:123] |
-| GET /api/v1/bookings/breaches | yes | true no-mock HTTP | `test_bookings.py` | [repo/API_tests/test_bookings.py:146] |
-| POST /api/v1/bookings/:uuid/approve | yes | true no-mock HTTP | `test_booking_approval.py`, `test_reauth_enforcement.py` | [repo/API_tests/test_booking_approval.py:124] |
-| POST /api/v1/bookings/:uuid/reject | yes | true no-mock HTTP | `test_booking_approval.py`, `test_reauth_enforcement.py` | [repo/API_tests/test_booking_approval.py:145] |
-| GET /api/v1/bookings/pending-approvals | yes | true no-mock HTTP | `test_department_booking.py` | [repo/API_tests/test_department_booking.py:82] |
-| GET /api/v1/bookings/:uuid/booker-breaches | yes | true no-mock HTTP | `test_department_booking.py` | [repo/API_tests/test_department_booking.py:140] |
-| GET /api/v1/bookings/restrictions | yes | true no-mock HTTP | `test_bookings.py` | [repo/API_tests/test_bookings.py:151] |
-| GET /api/v1/risk/rules | yes | true no-mock HTTP | `test_risk.py`, `test_envelope.py` | [repo/API_tests/test_risk.py:55] |
-| GET /api/v1/risk/events | yes | true no-mock HTTP | `test_risk.py`, `test_security_regression.py` | [repo/API_tests/test_risk.py:78] |
-| PUT /api/v1/risk/events/:uuid | yes | true no-mock HTTP | `test_risk.py`, `test_security_regression.py` | [repo/API_tests/test_risk.py:191] |
-| POST /api/v1/risk/evaluate | yes | true no-mock HTTP | `test_risk.py`, `test_security_regression.py` | [repo/API_tests/test_risk.py:71] |
-| POST /api/v1/risk/subscriptions | yes | true no-mock HTTP | `test_risk.py`, `test_security_regression.py` | [repo/API_tests/test_risk.py:117] |
-| GET /api/v1/risk/subscriptions | yes | true no-mock HTTP | `test_risk.py`, `test_security_regression.py` | [repo/API_tests/test_risk.py:125] |
-| POST /api/v1/risk/postings | yes | true no-mock HTTP | `test_risk.py` | [repo/API_tests/test_risk.py:63] |
-| POST /api/v1/risk/blacklist | yes | true no-mock HTTP | `test_risk.py`, `test_security_regression.py` | [repo/API_tests/test_risk.py:92] |
-| POST /api/v1/privacy/requests | yes | true no-mock HTTP | `test_privacy.py`, `test_privacy_workflows.py` | [repo/API_tests/test_privacy.py:46] |
-| GET /api/v1/privacy/requests | yes | true no-mock HTTP | `test_privacy.py`, `test_privacy_workflows.py` | [repo/API_tests/test_privacy.py:63] |
-| GET /api/v1/privacy/requests/my | yes | true no-mock HTTP | `test_privacy.py`, `test_privacy_workflows.py` | [repo/API_tests/test_privacy.py:56] |
-| POST /api/v1/privacy/requests/:uuid/review | yes | true no-mock HTTP | `test_privacy.py`, `test_privacy_workflows.py`, `test_security_regression.py` | [repo/API_tests/test_privacy.py:69] |
-| POST /api/v1/privacy/sensitive | yes | true no-mock HTTP | `test_privacy.py`, `test_security_regression.py` | [repo/API_tests/test_privacy.py:116] |
-| GET /api/v1/privacy/sensitive | yes | true no-mock HTTP | `test_privacy.py`, `test_security_regression.py` | [repo/API_tests/test_privacy.py:125] |
-| GET /api/v1/terms | yes | true no-mock HTTP | `test_scope_isolation.py`, `test_security_regression.py` | [repo/API_tests/test_scope_isolation.py:61] |
-| GET /api/v1/terms/active | yes | true no-mock HTTP | `test_terms_acceptance.py`, `test_courses.py`, `test_bookings.py` | [repo/API_tests/test_terms_acceptance.py:58] |
-| POST /api/v1/terms/:term_uuid/accept | yes | true no-mock HTTP | `test_terms_acceptance.py`, `test_courses.py`, `test_bookings.py` | [repo/API_tests/test_terms_acceptance.py:66] |
-| GET /api/v1/terms/my-acceptances | yes | true no-mock HTTP | `test_terms_acceptance.py` | [repo/API_tests/test_terms_acceptance.py:80] |
-| GET /api/v1/notifications | yes | true no-mock HTTP | `test_notifications.py`, `test_security_regression.py` | [repo/API_tests/test_notifications.py:45] |
-| GET /api/v1/notifications/unread-count | yes | true no-mock HTTP | `test_notifications.py`, `test_security_regression.py` | [repo/API_tests/test_notifications.py:53] |
-| PUT /api/v1/notifications/:uuid/read | yes | true no-mock HTTP | `test_notifications.py`, `test_security_regression.py` | [repo/API_tests/test_notifications.py:282] |
-| PUT /api/v1/notifications/read-all | yes | true no-mock HTTP | `test_notifications.py`, `test_security_regression.py` | [repo/API_tests/test_notifications.py:62] |
+| GET /health | yes | true no-mock HTTP | `test_health.py`, `test_envelope.py`, `test_rate_limit.py` | `api_get("/health")`, `api_request("GET", "/health")` |
+| GET /api/v1/info | yes | true no-mock HTTP | `test_health.py`, `test_envelope.py`, `test_security_regression.py` | `api_get("/api/v1/info")` |
+| POST /api/v1/auth/login | yes | true no-mock HTTP | `test_auth.py` (+many) | `api_post("/api/v1/auth/login", ...)` |
+| POST /api/v1/auth/change-password | yes | true no-mock HTTP | `test_auth.py`, `test_security_regression.py` | `api_post("/api/v1/auth/change-password", ...)` |
+| POST /api/v1/auth/reauth | yes | true no-mock HTTP | `test_auth.py`, `test_reauth_enforcement.py` | `api_post("/api/v1/auth/reauth", ...)` |
+| GET /api/v1/auth/me | yes | true no-mock HTTP | `test_auth.py`, `test_envelope.py` | `api_get("/api/v1/auth/me", ...)` |
+| POST /api/v1/auth/hmac-keys | yes | true no-mock HTTP | `test_hmac_flow.py` | `api_request("POST", "/api/v1/auth/hmac-keys", ...)` |
+| POST /api/v1/courses | yes | true no-mock HTTP | `test_courses.py`, `test_approvals.py` | `api_request("POST", "/api/v1/courses", ...)` |
+| GET /api/v1/courses | yes | true no-mock HTTP | `test_courses.py`, `test_scope_isolation.py` | `api_request("GET", "/api/v1/courses", ...)` |
+| GET /api/v1/courses/:uuid | yes | true no-mock HTTP | `test_courses.py`, `test_approvals.py` | `api_request("GET", f"/api/v1/courses/{...}", ...)` |
+| PUT /api/v1/courses/:uuid | yes | true no-mock HTTP | `test_courses.py` | `api_request("PUT", f"/api/v1/courses/{...}", ...)` |
+| DELETE /api/v1/courses/:uuid | yes | true no-mock HTTP | `test_courses.py` | `api_request("DELETE", f"/api/v1/courses/{...}", ...)` |
+| POST /api/v1/courses/:course_uuid/sections | yes | true no-mock HTTP | `test_courses.py` | `api_request("POST", f"/api/v1/courses/{...}/sections", ...)` |
+| GET /api/v1/courses/:course_uuid/sections | yes | true no-mock HTTP | `test_courses.py`, `test_scope_isolation.py` | `api_request("GET", f"/api/v1/courses/{...}/sections", ...)` |
+| PUT /api/v1/courses/sections/:uuid | yes | true no-mock HTTP | `test_courses.py` | `api_request("PUT", f"/api/v1/courses/sections/{...}", ...)` |
+| DELETE /api/v1/courses/sections/:uuid | yes | true no-mock HTTP | `test_courses.py` | `api_request("DELETE", f"/api/v1/courses/sections/{...}", ...)` |
+| POST /api/v1/courses/sections/:section_uuid/lessons | yes | true no-mock HTTP | `test_courses.py` | `api_request("POST", f"/api/v1/courses/sections/{...}/lessons", ...)` |
+| PUT /api/v1/courses/lessons/:uuid | yes | true no-mock HTTP | `test_courses.py` | `api_request("PUT", f"/api/v1/courses/lessons/{...}", ...)` |
+| DELETE /api/v1/courses/lessons/:uuid | yes | true no-mock HTTP | `test_courses.py` | `api_request("DELETE", f"/api/v1/courses/lessons/{...}", ...)` |
+| POST /api/v1/courses/media/upload | yes | true no-mock HTTP | `test_courses.py` | multipart upload to `/api/v1/courses/media/upload` |
+| POST /api/v1/courses/media | yes | true no-mock HTTP | `test_courses.py` | `api_request("POST", "/api/v1/courses/media", ...)` |
+| POST /api/v1/courses/media/:uuid/validate | yes | true no-mock HTTP | `test_courses.py` | `api_request("POST", f"/api/v1/courses/media/{...}/validate", ...)` |
+| GET /api/v1/courses/:course_uuid/versions | yes | true no-mock HTTP | `test_courses.py`, `test_approvals.py` | `api_request("GET", f"/api/v1/courses/{...}/versions", ...)` |
+| POST /api/v1/approvals/:course_uuid/submit | yes | true no-mock HTTP | `test_approvals.py`, `test_courses.py` | `api_request("POST", f"/api/v1/approvals/{...}/submit", ...)` |
+| POST /api/v1/approvals/:approval_uuid/review | yes | true no-mock HTTP | `test_approvals.py`, `test_reauth_enforcement.py` | `api_request("POST", f"/api/v1/approvals/{...}/review", ...)` |
+| GET /api/v1/approvals/:uuid | yes | true no-mock HTTP | `test_approvals.py`, `test_security_regression.py` | `api_request("GET", f"/api/v1/approvals/{...}", ...)` |
+| GET /api/v1/approvals/queue | yes | true no-mock HTTP | `test_approvals.py`, `test_scope_isolation.py` | `api_request("GET", "/api/v1/approvals/queue", ...)` |
+| POST /api/v1/approvals/process-scheduled | yes | true no-mock HTTP | `test_process_scheduled.py` | [repo/API_tests/test_process_scheduled.py:79], [repo/API_tests/test_process_scheduled.py:111] |
+| POST /api/v1/approvals/:course_uuid/unpublish | yes | true no-mock HTTP | `test_approvals.py` | `api_request("POST", f"/api/v1/approvals/{...}/unpublish", ...)` |
+| GET /api/v1/audit | yes | true no-mock HTTP | `test_audit.py`, `test_envelope.py` | `api_get("/api/v1/audit", ...)` |
+| POST /api/v1/tags | yes | true no-mock HTTP | `test_tags.py` | [repo/API_tests/test_tags.py:104], [repo/API_tests/test_tags.py:127] |
+| GET /api/v1/tags | yes | true no-mock HTTP | `test_tags.py` | [repo/API_tests/test_tags.py:145] |
+| GET /api/v1/bookings/resources | yes | true no-mock HTTP | `test_bookings.py`, `test_booking_approval.py` | `api_request("GET", "/api/v1/bookings/resources", ...)` |
+| GET /api/v1/bookings/resources/:uuid/availability | yes | true no-mock HTTP | `test_bookings.py` | `api_request("GET", f"/api/v1/bookings/resources/{...}/availability?...", ...)` |
+| POST /api/v1/bookings | yes | true no-mock HTTP | `test_bookings.py`, `test_booking_approval.py` | `api_request("POST", "/api/v1/bookings", ...)` |
+| POST /api/v1/bookings/:uuid/reschedule | yes | true no-mock HTTP | `test_bookings.py` | `api_request("POST", f"/api/v1/bookings/{...}/reschedule", ...)` |
+| POST /api/v1/bookings/:uuid/cancel | yes | true no-mock HTTP | `test_bookings.py`, `test_booking_approval.py` | `api_request("POST", f"/api/v1/bookings/{...}/cancel", ...)` |
+| GET /api/v1/bookings/my | yes | true no-mock HTTP | `test_bookings.py` | `api_request("GET", "/api/v1/bookings/my", ...)` |
+| GET /api/v1/bookings/breaches | yes | true no-mock HTTP | `test_bookings.py` | `api_request("GET", "/api/v1/bookings/breaches", ...)` |
+| POST /api/v1/bookings/:uuid/approve | yes | true no-mock HTTP | `test_booking_approval.py`, `test_reauth_enforcement.py` | `api_request("POST", f"/api/v1/bookings/{...}/approve", ...)` |
+| POST /api/v1/bookings/:uuid/reject | yes | true no-mock HTTP | `test_booking_approval.py`, `test_reauth_enforcement.py` | `api_request("POST", f"/api/v1/bookings/{...}/reject", ...)` |
+| GET /api/v1/bookings/pending-approvals | yes | true no-mock HTTP | `test_department_booking.py` | `api_request("GET", "/api/v1/bookings/pending-approvals", ...)` |
+| GET /api/v1/bookings/:uuid/booker-breaches | yes | true no-mock HTTP | `test_department_booking.py` | `api_request("GET", f"/api/v1/bookings/{...}/booker-breaches", ...)` |
+| GET /api/v1/bookings/restrictions | yes | true no-mock HTTP | `test_bookings.py` | `api_request("GET", "/api/v1/bookings/restrictions", ...)` |
+| GET /api/v1/risk/rules | yes | true no-mock HTTP | `test_risk.py`, `test_envelope.py` | `api_request("GET", "/api/v1/risk/rules", ...)` |
+| GET /api/v1/risk/events | yes | true no-mock HTTP | `test_risk.py`, `test_security_regression.py` | `api_request("GET", "/api/v1/risk/events", ...)` |
+| PUT /api/v1/risk/events/:uuid | yes | true no-mock HTTP | `test_risk.py`, `test_security_regression.py` | `api_request("PUT", f"/api/v1/risk/events/{...}", ...)` |
+| POST /api/v1/risk/evaluate | yes | true no-mock HTTP | `test_risk.py`, `test_security_regression.py` | `api_request("POST", "/api/v1/risk/evaluate", ...)` |
+| POST /api/v1/risk/subscriptions | yes | true no-mock HTTP | `test_risk.py`, `test_security_regression.py` | `api_request("POST", "/api/v1/risk/subscriptions", ...)` |
+| GET /api/v1/risk/subscriptions | yes | true no-mock HTTP | `test_risk.py`, `test_security_regression.py` | `api_request("GET", "/api/v1/risk/subscriptions", ...)` |
+| POST /api/v1/risk/postings | yes | true no-mock HTTP | `test_risk.py` | `api_request("POST", "/api/v1/risk/postings", ...)` |
+| POST /api/v1/risk/blacklist | yes | true no-mock HTTP | `test_risk.py`, `test_security_regression.py` | `api_request("POST", "/api/v1/risk/blacklist", ...)` |
+| POST /api/v1/privacy/requests | yes | true no-mock HTTP | `test_privacy.py`, `test_privacy_workflows.py` | `api_request("POST", "/api/v1/privacy/requests", ...)` |
+| GET /api/v1/privacy/requests | yes | true no-mock HTTP | `test_privacy.py`, `test_privacy_workflows.py` | `api_request("GET", "/api/v1/privacy/requests", ...)` |
+| GET /api/v1/privacy/requests/my | yes | true no-mock HTTP | `test_privacy.py`, `test_privacy_workflows.py` | `api_request("GET", "/api/v1/privacy/requests/my", ...)` |
+| POST /api/v1/privacy/requests/:uuid/review | yes | true no-mock HTTP | `test_privacy.py`, `test_privacy_workflows.py` | `api_request("POST", f"/api/v1/privacy/requests/{...}/review", ...)` |
+| POST /api/v1/privacy/sensitive | yes | true no-mock HTTP | `test_privacy.py`, `test_security_regression.py` | `api_request("POST", "/api/v1/privacy/sensitive", ...)` |
+| GET /api/v1/privacy/sensitive | yes | true no-mock HTTP | `test_privacy.py`, `test_security_regression.py` | `api_request("GET", "/api/v1/privacy/sensitive", ...)` |
+| GET /api/v1/terms | yes | true no-mock HTTP | `test_scope_isolation.py`, `test_security_regression.py` | `api_request("GET", "/api/v1/terms", ...)` |
+| GET /api/v1/terms/active | yes | true no-mock HTTP | `test_terms_acceptance.py`, `test_courses.py` | `api_request("GET", "/api/v1/terms/active", ...)` |
+| POST /api/v1/terms/:term_uuid/accept | yes | true no-mock HTTP | `test_terms_acceptance.py`, `test_courses.py` | `api_request("POST", f"/api/v1/terms/{...}/accept", ...)` |
+| GET /api/v1/terms/my-acceptances | yes | true no-mock HTTP | `test_terms_acceptance.py` | `api_request("GET", "/api/v1/terms/my-acceptances", ...)` |
+| GET /api/v1/notifications | yes | true no-mock HTTP | `test_notifications.py`, `test_security_regression.py` | `api_request("GET", "/api/v1/notifications/", ...)` |
+| GET /api/v1/notifications/unread-count | yes | true no-mock HTTP | `test_notifications.py`, `test_security_regression.py` | `api_request("GET", "/api/v1/notifications/unread-count", ...)` |
+| PUT /api/v1/notifications/:uuid/read | yes | true no-mock HTTP | `test_notifications.py`, `test_security_regression.py` | `api_request("PUT", f"/api/v1/notifications/{...}/read", ...)` |
+| PUT /api/v1/notifications/read-all | yes | true no-mock HTTP | `test_notifications.py`, `test_security_regression.py` | `api_request("PUT", "/api/v1/notifications/read-all", ...)` |
 
 ## API Test Classification
-- **True No-Mock HTTP:** all files under `repo/API_tests/*.py` send real HTTP requests via `urllib.request` to `API_BASE_URL` (e.g., [repo/API_tests/test_auth.py:30], [repo/API_tests/test_courses.py:18]).
-- **HTTP with Mocking:** none detected.
-- **Non-HTTP tests:** all files under `repo/unit_tests/backend/*.py` and `repo/unit_tests/frontend/test_route_definitions.py`.
+- **True No-Mock HTTP**: all `repo/API_tests/test_*.py` files issue HTTP requests using `urllib.request` to `API_BASE_URL`.
+- **HTTP with Mocking**: none detected.
+- **Non-HTTP tests**: `repo/unit_tests/backend/*`, `repo/unit_tests/frontend/*`, and `repo/unit_tests/frontend_rs/*`.
 
 ## Mock Detection
-- Searched for: `jest.mock`, `vi.mock`, `sinon.stub`, `patch(`, `MagicMock`, `Mock`, monkeypatch patterns across `repo/API_tests` and `repo/unit_tests`.
-- Result: no mocking/stubbing indicators found.
-- Observation: some API tests mutate DB state via `docker exec ... mysql` subprocess calls (not mocking, but external dependency): [repo/API_tests/test_auth.py:12], [repo/API_tests/test_hmac_flow.py:33], [repo/API_tests/test_risk.py:31], [repo/API_tests/test_department_booking.py:32].
+- Searched in API and unit test trees for `jest.mock`, `vi.mock`, `sinon.stub`, `patch(`, `MagicMock`, `Mock`, `monkeypatch`, `unittest.mock`.
+- Result: **no mocking/stubbing indicators found** (`rg` returned no matches).
+- Note: several API tests use `subprocess.run(["docker", "exec", ... "mysql", ...])` for DB state setup/reset; this is external-state setup, not route-path mocking (e.g., [repo/API_tests/test_tags.py:16], [repo/API_tests/test_process_scheduled.py:22]).
 
 ## Coverage Summary
 - Total endpoints: **66**
-- Endpoints with HTTP tests: **63**
-- Endpoints with true no-mock HTTP tests: **63**
-- HTTP coverage: **95.45%**
-- True API coverage: **95.45%**
-- Uncovered endpoints:
-  - `POST /api/v1/approvals/process-scheduled`
-  - `POST /api/v1/tags`
-  - `GET /api/v1/tags`
+- Endpoints with HTTP tests: **66**
+- Endpoints with true no-mock HTTP tests: **66**
+- HTTP coverage: **100.00%**
+- True API coverage: **100.00%**
+- Previously missing endpoints are now directly covered:
+  - `POST /api/v1/approvals/process-scheduled` ([repo/API_tests/test_process_scheduled.py])
+  - `POST /api/v1/tags` ([repo/API_tests/test_tags.py])
+  - `GET /api/v1/tags` ([repo/API_tests/test_tags.py])
 
 ## Unit Test Summary
 
 ### Backend Unit Tests
 - Files: `repo/unit_tests/backend/test_*.py` (14 files).
-- Covered module categories (mostly mirrored/spec logic, not direct Rust module execution):
-  - Services/business-rule mirrors: booking, risk, scheduling ([repo/unit_tests/backend/test_booking_rules.py:1], [repo/unit_tests/backend/test_risk_rules.py:1], [repo/unit_tests/backend/test_job_scheduling.py:1])
-  - Auth/permissions/security mirrors: JWT, password, permissions, encryption ([repo/unit_tests/backend/test_jwt_claims.py:1], [repo/unit_tests/backend/test_password.py:1], [repo/unit_tests/backend/test_permissions.py:1], [repo/unit_tests/backend/test_config_encryption.py:1])
-  - API envelope/shape mirrors: [repo/unit_tests/backend/test_api_response_shape.py:1]
-- Important backend modules not directly unit-tested (production Rust modules not imported/executed):
-  - Route handlers in `repo/backend/src/routes/*.rs`
-  - Repository layer in `repo/backend/src/repositories/*.rs`
-  - Middleware guards/rate limiter in `repo/backend/src/middleware/*.rs`
-  - Service implementations in `repo/backend/src/services/*.rs` (tested indirectly via API tests, not via Rust unit tests)
+- Covered areas (spec/business-rule tests): auth/password/JWT/permissions, booking rules, risk rules, scheduling logic, API shape contracts.
+- Important backend modules not directly unit-tested in Rust runtime:
+  - `repo/backend/src/routes/*.rs`
+  - `repo/backend/src/repositories/*.rs`
+  - `repo/backend/src/middleware/*.rs`
+  - `repo/backend/src/services/*.rs`
 
 ### Frontend Unit Tests (STRICT)
-- Frontend test files found: `repo/unit_tests/frontend/test_route_definitions.py`
-- Framework/tool evidence for frontend component tests: **none** (Python `unittest`, no Jest/Vitest/RTL/Dioxus test harness) ([repo/unit_tests/frontend/test_route_definitions.py:2])
-- Imports/renders of actual frontend components/modules: **none** (file uses hardcoded dictionaries only; no imports from `repo/frontend/src`) ([repo/unit_tests/frontend/test_route_definitions.py:4])
-- Components/modules covered: **none (no direct frontend module execution)**
-- Important frontend components/modules not tested:
+- Frontend test files found:
+  - `repo/unit_tests/frontend/test_route_definitions.py`
+  - `repo/unit_tests/frontend_rs/src/lib.rs`
+- Framework/tool evidence:
+  - Python `unittest` for route/nav harness.
+  - Rust `cargo test` crate (`repo/unit_tests/frontend_rs/Cargo.toml`) importing real frontend modules using `#[path]`.
+- Direct imports/runs of real frontend source:
+  - `#[path = "../../../frontend/src/types/mod.rs"]` ([repo/unit_tests/frontend_rs/src/lib.rs:14])
+  - `#[path = "../../../frontend/src/role_nav.rs"]` ([repo/unit_tests/frontend_rs/src/lib.rs:17])
+- Components/modules covered (direct):
+  - `frontend/src/types/mod.rs`
+  - `frontend/src/role_nav.rs`
+- Important frontend modules not yet unit-tested directly:
   - `repo/frontend/src/main.rs`
-  - `repo/frontend/src/pages/*` (dashboard/courses/approvals/bookings/risk/privacy/audit/login)
+  - `repo/frontend/src/pages/*`
   - `repo/frontend/src/components/*`
   - `repo/frontend/src/api/mod.rs`
 
-**Mandatory verdict:** **Frontend unit tests: MISSING**
-
-**CRITICAL GAP (strict rule):** Project is inferred `fullstack`, but strict frontend unit tests are missing.
+**Mandatory verdict: Frontend unit tests: PRESENT**
 
 ### Cross-Layer Observation
-- Coverage is backend-heavy: strong API HTTP coverage and many backend-spec Python tests.
-- Frontend execution-level unit testing and FE↔BE end-to-end testing are absent.
+- Backend API coverage is now comprehensive (66/66).
+- Frontend strict unit coverage now exists for real source modules, but still focuses on pure logic/types; UI/component execution coverage remains comparatively thinner.
 
 ## API Observability Check
-- Strengths: many tests show method/path, payload, and response field assertions (e.g., [repo/API_tests/test_auth.py:73], [repo/API_tests/test_courses.py:52], [repo/API_tests/test_risk.py:117]).
-- Weak spots: some tests assert mostly status code with shallow body assertions only (e.g., [repo/API_tests/test_department_booking.py:98], [repo/API_tests/test_courses.py:79], [repo/API_tests/test_security_regression.py:624]).
-- Verdict: **Moderate observability; partially weak in several negative-path tests.**
+- Strong: most tests expose method/path, request body, and response data assertions.
+- Moderate weakness remains in a subset of negative-path tests that primarily assert status code (examples: [repo/API_tests/test_department_booking.py], [repo/API_tests/test_security_regression.py:624]).
+- Verdict: **Good observability overall, with some shallow negative-path assertions.**
 
 ## Tests Check
-- Success/failure coverage: present across auth, RBAC, approval workflows, booking constraints, risk/privacy security paths.
-- Edge/validation/auth checks: present in many API files.
+- Success/failure coverage: present across auth, RBAC, approvals, bookings, risk, privacy, notifications.
+- Edge/validation/auth checks: present broadly.
 - Over-mocking: not detected.
-- `run_tests.sh` check:
-  - Uses local Python interpreter and local unittest discovery, not Docker-contained execution: [repo/run_tests.sh:16], [repo/run_tests.sh:55].
-  - API test execution requires externally running services (`docker compose up`), not self-contained in script: [repo/run_tests.sh:47].
-  - Strict audit flag: local dependency coupling exists.
+- `run_tests.sh` static compliance:
+  - Docker-contained execution enforced ([repo/run_tests.sh:5-13], [repo/run_tests.sh:91-97], [repo/run_tests.sh:117-177]).
+  - Strict failure handling present: `set -Eeuo pipefail`, `ERR`/`EXIT` traps, diagnostics, stage-wise non-zero failure aggregation ([repo/run_tests.sh:14], [repo/run_tests.sh:45-75], [repo/run_tests.sh:198-201]).
 
-## Test Coverage Score (0-100)
-**79/100**
+## End-to-End Expectations
+- Fullstack FE↔BE browser-journey E2E automation (e.g., Playwright/Cypress) is still absent.
+- Given 100% API endpoint coverage + backend/unit layers + strict frontend unit tests, this is a **remaining gap**, but no longer a blocker for strict API coverage/readme gate compliance.
+
+## Test Coverage Score (0–100)
+**95/100**
 
 ## Score Rationale
-- + High HTTP endpoint coverage (63/66).
-- + API tests are real HTTP without explicit mocks.
-- + Good auth/permission/failure-path breadth.
-- - 3 backend endpoints fully untested (including scheduler endpoint).
-- - Frontend unit test requirement fails strict criteria (critical for fullstack).
-- - No FE↔BE E2E tests.
-- - Many backend “unit tests” are Python mirrors, not direct execution of Rust production modules.
+- + 100% endpoint HTTP coverage with real route-path calls.
+- + No explicit mocking/stubbing in API path.
+- + Previously uncovered critical endpoints now tested (tags + process-scheduled HMAC).
+- + Frontend strict unit tests now execute real frontend Rust modules.
+- - FE↔BE automated browser E2E still missing.
+- - Some negative-path observability remains shallow.
 
 ## Key Gaps
-- No API coverage for `/api/v1/tags` (GET/POST).
-- No API coverage for `/api/v1/approvals/process-scheduled` HMAC path.
-- Frontend tests do not execute real frontend code/framework; strict frontend unit testing is missing.
-- No fullstack E2E user-journey tests.
+- No automated browser-level FE↔BE E2E suite.
+- Direct unit execution for many frontend UI pages/components is still limited.
+- Many backend “unit” tests are behavior mirrors in Python rather than Rust module-level tests.
 
 ## Confidence & Assumptions
-- Confidence: **high** for endpoint inventory and HTTP call mapping.
-- Assumption: `api_request/api/_http` helpers in API tests represent real HTTP calls to running backend.
-- Static-only limitation: runtime route matching behavior (e.g., trailing slash equivalence) not validated by execution.
+- Confidence: **high** for endpoint inventory and static HTTP mapping.
+- Assumption: request helpers (`api_request`, `api_get`, `api_post`) are used consistently as real HTTP calls to a running backend.
+- Static-only limitation: runtime route normalization behavior (e.g., trailing slash handling) is inferred from test intent and helper usage, not executed.
 
 ## Test Coverage Verdict
-**PARTIAL PASS (with CRITICAL GAP on frontend unit testing).**
+**PASS (strict API coverage achieved; frontend strict-unit requirement present).**
 
 ---
 
@@ -265,45 +269,43 @@ Legend:
 ## Hard Gate Results
 
 ### Formatting
-- PASS: Structured markdown with headings, tables, and code blocks ([repo/README.md:1]).
+- PASS: Structured markdown with clear headings, tables, and runnable command blocks.
 
 ### Startup Instructions (Fullstack)
-- **FAIL (hard gate):** Required literal instruction `docker-compose up` is missing.
-- Found `docker compose up` instead ([repo/README.md:35]).
+- PASS: exact literal `docker-compose up` present ([repo/README.md:43]).
 
 ### Access Method
-- PASS: URL/port access documented for app/backend/health/db ([repo/README.md:56]).
+- PASS: URL/port/service mapping present ([repo/README.md:52-60]).
 
 ### Verification Method
-- PASS: Includes API verification via `curl` and UI verification flows ([repo/README.md:84], [repo/README.md:113]).
+- PASS: API verification (`curl`) and explicit UI verification flows present ([repo/README.md:77-181]).
 
 ### Environment Rules (Docker-contained only)
-- **FAIL (hard gate):** README includes runtime local installs and non-containerized local dev/test commands:
-  - `rustup target add wasm32-unknown-unknown` ([repo/README.md:45])
-  - `cargo install trunk --version 0.21.5 --locked` ([repo/README.md:46])
-  - direct local `python3 -m unittest ...` flows ([repo/README.md:245])
+- PASS: README explicitly states no host-side runtime/toolchain requirements and Docker-contained execution ([repo/README.md:48], [repo/README.md:182-198]).
+- PASS: no prohibited install/setup commands (`npm install`, `pip install`, `apt-get`, manual DB setup) were found in README.
 
 ### Demo Credentials (Auth exists)
-- PASS: Credentials provided with username + password + roles for seeded accounts ([repo/README.md:71], [repo/backend/src/services/seed.rs:22]).
+- PASS: usernames, passwords, and role coverage listed ([repo/README.md:67-73]); seed evidence exists ([repo/backend/src/services/seed.rs:22-28]).
 
 ## Engineering Quality Findings
 
 ### High Priority Issues
-- README endpoint count is incorrect: claims 55; static route inventory is 66 ([repo/README.md:264], [repo/backend/src/main.rs:96]).
-- README project structure claims `migrations` has 3 files; repository has 12 migrations ([repo/README.md:308], `repo/backend/migrations/*.sql`).
-- Fullstack test guidance overstates frontend test validity; current frontend “unit test” is a Python dictionary check, not real frontend module/component testing ([repo/README.md:258], [repo/unit_tests/frontend/test_route_definitions.py:1]).
+- None found that violate hard gates.
 
 ### Medium Priority Issues
-- Project type label required by audit policy (`backend/fullstack/web/android/ios/desktop`) is not declared at top ([repo/README.md:1]).
-- README uses both HTTPS proxy and direct backend paths; may cause environment inconsistency if interpreted as canonical startup verification path ([repo/README.md:84], [repo/README.md:100]).
+- README includes both HTTPS proxy path and dev-only direct backend path; this is documented but still introduces dual-path operator choice ([repo/README.md:56], [repo/README.md:81], [repo/README.md:96-105]).
 
 ### Low Priority Issues
-- Some quantitative claims appear stale (source file counts) and should be auto-derived or removed ([repo/README.md:300]).
+- Quantitative claims (endpoint counts, file counts) are currently aligned, but these are maintenance-sensitive and can drift without automation.
 
 ## Hard Gate Failures
-- Missing exact `docker-compose up` startup command string.
-- Violates Docker-contained environment rule by including runtime/local install paths.
+- None.
 
 ## README Verdict
-**FAIL**
+**PASS**
 
+---
+
+## Final Combined Verdict
+- **Test Coverage Audit:** PASS
+- **README Audit:** PASS

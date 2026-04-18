@@ -1,0 +1,18 @@
+[package]
+name = "frontend-unit-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+# A standalone test crate that imports real frontend source files
+# (via #[path]) and exercises their pure-Rust logic on the host target.
+# Run with:   cargo test --manifest-path unit_tests/frontend_rs/Cargo.toml
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]

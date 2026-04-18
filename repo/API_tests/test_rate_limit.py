@@ -12,12 +12,26 @@ NOTE: Each test class uses a distinct seeded account so their rate-limit windows
       do not collide with each other or with other test files.
 """
 import os
+import subprocess
 import unittest
 import urllib.request
 import json
 
 BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
 RATE_LIMIT = int(os.environ.get("RATE_LIMIT_PER_MINUTE", "120"))
+
+
+def _reset_rate_limit_state():
+    """Clear per-user rate-limit counters so burst tests start from a known zero
+    baseline, independent of how many requests other test modules already made."""
+    subprocess.run(
+        ["docker", "exec", "campuslearn-mysql", "mysql", "-ucampus", "-pcampus_pass",
+         "campus_learn", "-e",
+         "DELETE FROM rate_limit_entries; "
+         "DELETE FROM ip_rate_limits; "
+         "UPDATE users SET failed_login_count=0, locked_until=NULL;"],
+        capture_output=True,
+    )
 
 
 def _http(method: str, path: str, data: dict = None, token: str = None) -> tuple[int, dict]:
@@ -45,8 +59,13 @@ def get_token(username: str, password: str) -> str:
 class TestRateLimitBreach(unittest.TestCase):
     """Burst traffic beyond RATE_LIMIT_PER_MINUTE must return HTTP 429."""
 
+    @classmethod
+    def setUpClass(cls):
+        _reset_rate_limit_state()
+
     def test_breach_returns_429(self):
         """Fire RATE_LIMIT + 10 requests; at least the last one must be 429."""
+        _reset_rate_limit_state()
         token = get_token("faculty", "Faculty@123456")
         if not token:
             self.skipTest("Login failed — backend not reachable")
@@ -66,6 +85,7 @@ class TestRateLimitBreach(unittest.TestCase):
 
     def test_429_response_envelope(self):
         """The 429 body must conform to the standard ApiError envelope."""
+        _reset_rate_limit_state()
         token = get_token("student", "Student@12345")
         if not token:
             self.skipTest("Login failed")

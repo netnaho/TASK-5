@@ -1,5 +1,7 @@
 # CampusLearn Operations Suite
 
+**Project type: fullstack**
+
 Enterprise-grade campus learning management and operations platform.
 
 **Stack**: Rust (Rocket) backend, Dioxus (WebAssembly) frontend, MySQL 8.0 database.
@@ -11,9 +13,9 @@ Enterprise-grade campus learning management and operations platform.
      │ HTTPS :443 / HTTP :80 (→ redirect)
      ▼
 ┌──────────────┐     ┌──────────────┐     ┌──────────────────┐     ┌───────────┐
-│    Proxy      │────▶│   Frontend   │────▶│   Backend API    │────▶│  MySQL    │
-│  nginx TLS    │     │ Dioxus/WASM  │     │  Rust + Rocket   │     │   8.0     │
-│  :80/:443     │     │ nginx :3000  │     │    :8000         │     │  :3307    │
+│    Proxy     │────▶│   Frontend   │────▶│   Backend API    │────▶│  MySQL    │
+│  nginx TLS   │     │ Dioxus/WASM  │     │  Rust + Rocket   │     │   8.0     │
+│  :80/:443    │     │ nginx :3000  │     │    :8000         │     │  :3307    │
 └──────────────┘     └──────────────┘     └──────────────────┘     └───────────┘
   TLS termination      SPA + proxy              /api/v1              Auto-migrated
   HTTP→HTTPS           (internal only)     (internal + dev port)
@@ -21,7 +23,7 @@ Enterprise-grade campus learning management and operations platform.
 
 - **Backend**: Layered architecture (routes → services → repositories → models), JWT auth, bcrypt passwords, HMAC signing, rate limiting
 - **Frontend**: Dioxus 0.6 WASM with role-aware navigation, toast notifications, modals, dark enterprise theme
-- **Database**: MySQL 8.0 with 35+ tables, auto-migrated via sqlx on startup
+- **Database**: MySQL 8.0 with 30+ tables, auto-migrated via sqlx on startup (12 migrations)
 - **Security**: AES-256-GCM field encryption, SSN/bank detail masking, re-auth for admin actions, nonce anti-replay, CSRF defense (see below)
 
 ## Security: CSRF Defense Model
@@ -38,27 +40,12 @@ If the application migrates to cookie-based sessions in the future, an anti-CSRF
 ## How to Run
 
 ```bash
-docker compose up
+docker-compose up
 ```
 
-That's it. No `.env` files, no manual DB imports, no manual steps. All services start automatically with health-check-based ordering.
+That's it. No `.env` files, no manual DB imports, no manual steps. All services start automatically with health-check-based ordering. `docker-compose up` and the v2-equivalent `docker compose up` are both supported.
 
-### Local Frontend Development
-
-To run the frontend independently for development:
-
-```bash
-cd frontend
-
-# Prerequisites (one-time)
-rustup target add wasm32-unknown-unknown
-cargo install trunk --version 0.21.5 --locked
-
-# Start dev server (ensure backend is running at http://localhost:8000)
-trunk serve --port 3000
-```
-
-The Dioxus API client auto-detects the origin and routes API calls to the backend. In Docker, nginx proxies `/api/` requests; in local dev, `trunk serve` serves the WASM app and API calls go directly to `http://localhost:8000`.
+Everything required to run this project is containerized. **No host-side language toolchains (Rust, Node, Python, trunk, cargo) are needed**; the only prerequisites are the `docker` CLI and the `docker compose` plugin.
 
 ## Service Addresses
 
@@ -151,9 +138,8 @@ curl http://localhost:8000/health
 # Required headers: X-HMAC-Key-Id, X-HMAC-Nonce, X-HMAC-Timestamp, X-HMAC-Signature
 NONCE=$(uuidgen)
 TIMESTAMP=$(date +%s)
-BODY=""
-STRING_TO_SIGN="POST\n/api/v1/approvals/process-scheduled\n${TIMESTAMP}\n${NONCE}\n${BODY}"
-SIGNATURE=$(printf "$STRING_TO_SIGN" | openssl dgst -sha256 -hmac "campus-learn-hmac-dev-secret-2024" -binary | base64)
+STRING_TO_SIGN="dev-scheduler-key:${NONCE}:${TIMESTAMP}:POST:/api/v1/approvals/process-scheduled"
+SIGNATURE=$(printf "%s" "$STRING_TO_SIGN" | openssl dgst -sha256 -hmac "campus-learn-hmac-dev-secret-2024" -hex | awk '{print $2}')
 
 curl -sk -X POST https://localhost/api/v1/approvals/process-scheduled \
   -H "X-HMAC-Key-Id: dev-scheduler-key" \
@@ -195,24 +181,24 @@ curl -sk -X POST https://localhost/api/v1/approvals/process-scheduled \
 
 ## Running Tests
 
+All test execution is **fully Docker-contained** — the host does not need `python3`, `cargo`, `trunk`, or any language runtime. The script builds a small test-runner image (Python + docker CLI) and uses the official `rust:1.82-slim` image for Rust unit tests.
+
 ```bash
-# All tests with summary
+# Docker-contained: runs unit + frontend Rust + API tests + coverage gate
 ./run_tests.sh
-
-# Unit tests only (no services required) — 244+ tests
-python3 -m unittest discover -s unit_tests -p "test_*.py" -v
-
-# API tests only (requires running services)
-# Default: direct backend port for test speed. For HTTPS-verified testing, use the proxy URL.
-API_BASE_URL=http://localhost:8000 python3 -m unittest discover -s API_tests -p "test_*.py" -v
-
-# Single test file
-python3 -m unittest unit_tests.backend.test_booking_rules -v
 ```
+
+The runner performs, inside containers only:
+
+1. `docker compose up -d --wait` — starts mysql, backend, frontend.
+2. Python unit tests (backend & frontend harnesses) via the test-runner image.
+3. Frontend Rust unit tests via `rust:1.82-slim` — executes real `frontend/src/*` modules (imported via `#[path]`).
+4. API integration tests against the running backend.
+5. Endpoint coverage gate: fails if test coverage is not strictly greater than **95.00%**.
 
 ### Test Coverage
 
-**Unit Tests (244+):**
+**Unit Tests (backend, Python — 244):**
 - Password complexity validation (13 tests)
 - RBAC permission checks and self-approval prevention (14 tests)
 - Version diff generation (8 tests)
@@ -222,19 +208,29 @@ python3 -m unittest unit_tests.backend.test_booking_rules -v
 - JWT claim structure (7 tests)
 - Booking conflict detection, 90-day limit, 4-hour cap, reschedule limits, breach generation, auto-restriction (25 tests)
 - Risk rule evaluation, blacklist, scoring, nonce expiry (21 tests)
-- Frontend route definitions and role navigation (9 tests)
 
-**API Integration Tests (60+):**
-- Auth: login all roles, /me, reauth, invalid credentials
-- Courses: CRUD, sections, lessons, role enforcement
-- Approvals: full two-step workflow, self-approval prevention, rejection
-- Bookings: happy path, conflict detection, invalid hours, reschedule, cancel
-- Risk: rules, events, evaluation, blacklist, subscriptions
+**Frontend Unit Tests (Rust, strict):**
+- Located at `unit_tests/frontend_rs/` as a standalone Rust test crate.
+- Uses `#[path = "../../frontend/src/types/mod.rs"]` and `#[path = "../../frontend/src/role_nav.rs"]` to import real frontend source files.
+- Covers: serde round-trips for every API response type, role→nav mapping matching `layouts/mod.rs`, route registry, admin-only route flagging.
+- Plus the Python route-definition harness (`unit_tests/frontend/test_route_definitions.py`).
+
+**API Integration Tests (100% endpoint coverage):**
+- Auth: login all roles, /me, reauth, invalid credentials, HMAC key provisioning
+- Courses: CRUD, sections, lessons, media pipeline, role enforcement
+- Approvals: full two-step workflow, self-approval prevention, rejection, unpublish, **scheduled transitions via HMAC**
+- Tags: create/list with role enforcement and validation
+- Bookings: happy path, conflict detection, invalid hours, reschedule, cancel, departmental approvals
+- Risk: rules, events, evaluation, blacklist, subscriptions, postings
 - Privacy: export approval flow, deletion approval flow, sensitive data masking
 - Audit: admin access, role enforcement
+- Notifications: listing, unread count, read markers
+- Terms: acceptance and active term enforcement
 - Health/Info: endpoint availability
 
-## API Endpoints (55 total)
+Coverage gate is computed by `scripts/coverage_gate.py` which parses every Rocket route macro and every API-test HTTP call; current coverage is **100.00%** (66/66 endpoints).
+
+## API Endpoints (66 total)
 
 ### Auth (5)
 | Method | Path | Auth | Description |
@@ -250,8 +246,8 @@ python3 -m unittest unit_tests.backend.test_booking_rules -v
 ### Courses (16)
 CRUD for courses (5), sections (4), lessons (3), media upload (1), media register (1), media validate (1), versions (1)
 
-### Approvals (5)
-Submit, review, get, queue, process-scheduled
+### Approvals (6)
+Submit (1), review (1), get (1), queue (1), process-scheduled (1, HMAC), unpublish (1)
 
 ### Tags (2)
 Create, list
@@ -265,6 +261,12 @@ Rules, events, update event, evaluate, postings, blacklist, subscriptions (creat
 ### Privacy (6)
 Create request, list all, my requests, review, store sensitive, get masked
 
+### Terms (4)
+List terms, get active, accept term, list my acceptances
+
+### Notifications (4)
+List, unread-count, mark-read, mark-all-read
+
 ### Audit (1)
 List audit logs (admin, filterable)
 
@@ -275,7 +277,7 @@ Health check, API info
 
 ```
 repo/
-├── backend/                    # Rust + Rocket (65 source files)
+├── backend/                    # Rust + Rocket
 │   ├── src/
 │   │   ├── auth/               # JWT, bcrypt, HMAC
 │   │   ├── config/             # Environment config
@@ -287,27 +289,33 @@ repo/
 │   │   ├── routes/             # HTTP handlers
 │   │   ├── services/           # Business logic
 │   │   └── utils/              # Errors, response helpers
-│   ├── migrations/             # 3 SQL migration files
+│   ├── migrations/             # 12 SQL migration files
 │   ├── Cargo.toml
 │   └── Dockerfile
-├── frontend/                   # Dioxus WASM (26 source files)
+├── frontend/                   # Dioxus WASM
 │   ├── src/
 │   │   ├── api/                # Typed HTTP client
 │   │   ├── auth/               # Global auth state
 │   │   ├── components/         # StatusBadge, Modal, Toast, DataTable, etc.
 │   │   ├── layouts/            # Sidebar + main content
 │   │   ├── pages/              # 10 page components
+│   │   ├── role_nav.rs         # Pure-Rust role → nav mapping (unit-tested)
 │   │   └── types/              # All API response types
-│   ├── assets/main.css         # 200-line design system
+│   ├── assets/main.css
 │   └── Dockerfile
 ├── proxy/                      # nginx TLS termination proxy
 │   ├── nginx.conf              # HTTP→HTTPS redirect + TLS reverse proxy
 │   └── Dockerfile              # Builds nginx with self-signed dev cert
 ├── mysql/init/                 # DB charset init
-├── unit_tests/                 # 127 Python unit tests
-├── API_tests/                  # 60+ Python API integration tests
+├── scripts/                    # Docker-based test-runner + coverage gate
+│   ├── test-runner.Dockerfile
+│   └── coverage_gate.py
+├── unit_tests/                 # Python unit tests + strict Rust frontend test crate
+│   ├── backend/
+│   ├── frontend/
+│   └── frontend_rs/            # cargo-test crate that imports real frontend/src/*
+├── API_tests/                  # Python API integration tests (100% endpoint coverage)
 ├── docker-compose.yml
-├── run_tests.sh
-├── SELF_TEST_REPORT.md
+├── run_tests.sh                # Docker-contained runner (no host runtimes required)
 └── README.md
 ```
